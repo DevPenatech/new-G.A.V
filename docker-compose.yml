@@ -1,0 +1,60 @@
+# docker-compose.yml
+services:
+  # --- SERVIÇO DE BANCO DE DADOS ---
+  gav_db:
+    image: postgres:15-alpine
+    container_name: gav_db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      # Volume para persistir os dados do banco
+      - postgres_data:/var/lib/postgresql/data
+      # Monta o script de schema para ser executado na inicialização
+      - ./infra/banco_dados/schema.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      # Expõe a porta do Postgres para a máquina host (para debug)
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      # Verifica se o banco está pronto para aceitar conexões
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- SERVIÇO DA API DE NEGÓCIO ---
+  api_negocio:
+    container_name: api_negocio
+    build: ./api-negocio
+    depends_on:
+      gav_db:
+        condition: service_healthy
+    env_file: .env
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./api-negocio:/app
+    restart: unless-stopped
+    # ADICIONE A LINHA ABAIXO:
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+
+  # --- SERVIÇO DO ORQUESTRADOR DE IA ---
+  gav_orquestrador:
+    container_name: gav_orquestrador
+    build: ./gav-orquestrador
+    depends_on:
+      - api_negocio
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./gav-orquestrador:/app
+    restart: unless-stopped
+    # ADICIONE A LINHA ABAIXO:
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  postgres_data:
+    driver: local

@@ -1,0 +1,16 @@
+# /migracao-etl/requirements.txt
+
+# Para carregar variáveis de ambiente
+python-dotenv
+
+# Driver para conectar ao Oracle
+oracledb
+
+# Driver para conectar ao PostgreSQL
+psycopg2-binary
+
+# Biblioteca para manipulação de dados em memória
+pandas
+
+# Biblioteca para interagir com bancos de forma mais robusta (usada pelo pandas)
+sqlalchemy
