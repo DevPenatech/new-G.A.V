@@ -90,3 +90,10 @@ def endpoint_get_prompt(nome: str, db: Session = Depends(get_db)):
     if not template:
         raise HTTPException(status_code=404, detail="Prompt não encontrado.")
     return {"nome": nome, "template": template}
+
+@app.get("/unidades/aliases", tags=["Unidades"])
+def endpoint_get_unidade_aliases(db: Session = Depends(get_db)):
+    """Retorna um dicionário de todos os aliases de unidade ativos."""
+    aliases = crud.get_all_unidade_aliases(db)
+    # Converte a lista de tuplas em um dicionário para fácil consumo
+    return {row.alias: row.unidade_principal for row in aliases}

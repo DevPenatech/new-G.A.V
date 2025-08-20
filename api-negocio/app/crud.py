@@ -270,3 +270,8 @@ def get_prompt_ativo_por_nome(db: Session, nome: str) -> str:
         # Um fallback de emergência caso o prompt não seja encontrado no banco
         return "Você é um assistente prestativo. Responda em JSON."
     return resultado
+
+def get_all_unidade_aliases(db: Session) -> list:
+    """Busca todos os aliases de unidade ativos."""
+    stmt = text("SELECT alias, unidade_principal FROM unidade_aliases WHERE ativo = TRUE")
+    return db.execute(stmt).fetchall()
