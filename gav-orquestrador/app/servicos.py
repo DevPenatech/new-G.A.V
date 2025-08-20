@@ -6,6 +6,7 @@ import re
 from .config import settings
 from .esquemas import ToolCall, MensagemChat, Feedback
 from fastapi import HTTPException
+from .servico_carrinho import ver_carrinho as ver_carrinho_servico
 
 _session_cache = {}
 _prompt_cache = {}
@@ -127,8 +128,13 @@ def _preparar_contexto_para_ia(dados_api: dict) -> str:
 async def orquestrar_chat(mensagem: MensagemChat):
     sessao_id = mensagem.sessao_id
     tool_call_a_executar: ToolCall
+    categoria_parsed = None
 
-    if sessao_id in _session_cache and _session_cache[sessao_id].get('state') == 'aguardando_escolha_item':
+    regex_carrinho = r"\b(carrinh[oa]s?|ver carrinho|meu carrinho|mostrar carrinho)\b"
+    if re.search(regex_carrinho, mensagem.texto, re.IGNORECASE):
+        tool_call_a_executar = ToolCall(tool_name="ver_carrinho", parameters={})
+        categoria_parsed = "ver_carrinho"
+    elif sessao_id in _session_cache and _session_cache[sessao_id].get('state') == 'aguardando_escolha_item':
         aliases = await _get_unit_aliases()
         contexto_salvo = _session_cache[sessao_id]['data']
         tool_call_a_executar = _extrair_escolha_do_contexto(mensagem.texto, contexto_salvo, aliases)
@@ -137,11 +143,14 @@ async def orquestrar_chat(mensagem: MensagemChat):
         prompt_a_usar = prompt_mestre.format(contexto_da_conversa="")
         tool_call_a_executar = await chamar_ollama(mensagem.texto, prompt_a_usar)
         
+    rota_escolhida = tool_call_a_executar.tool_name
     async with httpx.AsyncClient() as client:
         log_payload = {
-            "sessao_id": mensagem.sessao_id, "mensagem_usuario": mensagem.texto,
-            # BUG 1 - CORRIGIDO: usa a variável correta
-            "resposta_json": tool_call_a_executar.model_dump()
+            "sessao_id": mensagem.sessao_id,
+            "mensagem_usuario": mensagem.texto,
+            "resposta_json": tool_call_a_executar.model_dump(),
+            "categoria_parsed": categoria_parsed,
+            "rota_escolhida": rota_escolhida,
         }
         await client.post(f"{settings.API_NEGOCIO_URL}/logs/interacao", json=log_payload)
 
@@ -151,11 +160,17 @@ async def orquestrar_chat(mensagem: MensagemChat):
 async def executar_ferramenta(tool_call: ToolCall, mensagem: MensagemChat):
     """Executa a ferramenta decidida pelo LLM e gerencia o estado da memória."""
     sessao_id = mensagem.sessao_id
-    
+    aliases = {"exibir_carrinho": "ver_carrinho", "mostrar_carrinho": "ver_carrinho"}
+    if tool_call.tool_name in aliases:
+        tool_call.tool_name = aliases[tool_call.tool_name]
+
     # Se a ação for conclusiva (adicionar item, ver carrinho), limpa a memória para a próxima conversa.
     if tool_call.tool_name in ["adicionar_item_carrinho", "ver_carrinho"]:
         _session_cache.pop(sessao_id, None)
-        
+
+    if tool_call.tool_name == "ver_carrinho":
+        return await ver_carrinho_servico(sessao_id)
+
     async with httpx.AsyncClient(timeout=30.0) as client:
         if tool_call.tool_name == "buscar_produtos":
             url_busca = f"{settings.API_NEGOCIO_URL}/produtos/busca"
@@ -205,12 +220,6 @@ async def executar_ferramenta(tool_call: ToolCall, mensagem: MensagemChat):
             response.raise_for_status()
             return {"resposta": "Item adicionado ao carrinho com sucesso!"}
 
-        elif tool_call.tool_name == "ver_carrinho":
-            url_ver_carrinho = f"{settings.API_NEGOCIO_URL}/carrinhos/{sessao_id}"
-            response = await client.get(url_ver_carrinho)
-            response.raise_for_status()
-            return response.json()
-            
         elif tool_call.tool_name == "handle_chitchat":
             return {"resposta": tool_call.parameters.get("mensagem")}
 
