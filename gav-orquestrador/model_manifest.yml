@@ -1,0 +1,43 @@
+# O Manifesto do Modelo define o comportamento do G.A.V. de forma declarativa.
+# O Orquestrador irá carregar este ficheiro para saber como agir.
+
+versao_manifesto: 1.0
+
+# Regras de roteamento são executadas em ordem. A primeira que corresponder é executada.
+roteamento:
+  # Regra 1: Bypass para ver o carrinho. É uma ação determinística.
+  - nome: "Verificar Carrinho (Bypass)"
+    bypass_llm: true
+    condicoes:
+      - tipo: regex
+        padrao: '\b(carrinh[oa]s?|ver carrinho|meu carrinho|mostrar carrinho|exibir carrinho)\b'
+    acao:
+      tool_name: "ver_carrinho"
+
+  # Regra 2: Bypass para escolha de item. Ação baseada no estado da conversa.
+  - nome: "Extrair Escolha de Item (Memória)"
+    bypass_llm: true
+    condicoes:
+      - tipo: estado_sessao
+        estado: "aguardando_escolha_item"
+    acao:
+      # 'handler' indica uma função específica no código, não uma ferramenta.
+      handler: "extrair_escolha_do_contexto"
+
+  # Regra 3: Rota padrão que usa o LLM para classificar a intenção.
+  - nome: "Triagem de Intenção com IA"
+    bypass_llm: false
+    acao:
+      tipo: "triagem_llm"
+      prompt: "prompt_triagem_intencao"
+      # Mapeamento de como tratar cada intenção classificada.
+      mapeamento_intencao:
+        - intencao: "busca_produto"
+          acao:
+            tipo: "extracao_parametros_llm"
+            prompt: "prompt_mestre"
+        - intencao: ["saudacao", "conversa_fiada"]
+          acao:
+            tool_name: "emitir_resposta"
+            parametros:
+              mensagem: "Olá! Sou G.A.V., seu assistente de vendas. Como posso te ajudar a encontrar produtos hoje?"

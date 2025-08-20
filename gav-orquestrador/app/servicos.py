@@ -1,5 +1,6 @@
 # /gav-orquestrador/app/servicos.py
 
+import uuid
 import httpx
 import json
 import re
@@ -17,7 +18,8 @@ async def _get_prompt_template(nome_prompt: str) -> str:
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(url)
-            response.raise_for_status()
+            if response.status_code != 200:
+                 raise HTTPException(status_code=response.status_code, detail=f"Erro ao buscar prompt '{nome_prompt}': {response.text}")
             template = response.json()["template"]
             _prompt_cache[nome_prompt] = template
             return template
@@ -25,8 +27,10 @@ async def _get_prompt_template(nome_prompt: str) -> str:
         raise HTTPException(status_code=503, detail=f"Não foi possível buscar o prompt '{nome_prompt}'.")
 
 async def chamar_ollama(texto_usuario: str, prompt_sistema: str) -> ToolCall:
+    """Chama o LLM esperando especificamente um JSON no formato ToolCall."""
     url_ollama = f"{settings.OLLAMA_HOST}/api/chat"
     payload = { "model": settings.OLLAMA_MODEL_NAME, "temperature": 0.1, "messages": [{"role": "system", "content": prompt_sistema}, {"role": "user", "content": texto_usuario}], "format": "json", "stream": False }
+    
     async with httpx.AsyncClient(timeout=180.0) as client:
         try:
             response = await client.post(url_ollama, json=payload)
@@ -45,6 +49,23 @@ async def chamar_ollama(texto_usuario: str, prompt_sistema: str) -> ToolCall:
         except httpx.RequestError as e:
             raise HTTPException(status_code=503, detail=f"Erro de conexão com o Ollama: {e}")
 
+
+async def _chamar_llm_para_json(texto_usuario: str, prompt_sistema: str) -> dict:
+    """Função genérica para chamar o LLM e obter uma resposta JSON."""
+    url_ollama = f"{settings.OLLAMA_HOST}/api/chat"
+    payload = {"model": settings.OLLAMA_MODEL_NAME, "temperature": 0.1, "messages": [{"role": "system", "content": prompt_sistema}, {"role": "user", "content": texto_usuario}], "format": "json", "stream": False}
+    try:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            response = await client.post(url_ollama, json=payload)
+            response.raise_for_status()
+            resposta_str = response.json()["message"]["content"]
+            return json.loads(resposta_str)
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Timeout ao chamar o LLM para classificação.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao processar resposta do LLM para classificação: {e}")
+ 
+ 
 async def _get_unit_aliases() -> dict:
     global _unit_alias_cache
     if _unit_alias_cache is None:
@@ -124,19 +145,56 @@ def _preparar_contexto_para_ia(dados_api: dict) -> str:
                 fatos.append("  - [MELHOR CUSTO-BENEFÍCIO] Levar a caixa é mais barato por unidade!")
     return "\n".join(fatos)
 
+async def formatar_resposta_carrinho(dados_carrinho: dict) -> str:
+    if not dados_carrinho or not dados_carrinho.get("itens"):
+        return "Seu carrinho está vazio."
+
+    linhas_itens = []
+    for item in dados_carrinho["itens"]:
+        linhas_itens.append(
+            f"{item['quantidade']}x {item['descricao_produto']} — R$ {item['subtotal']:.2f}"
+        )
+    
+    resposta_formatada = "\n".join(linhas_itens)
+    resposta_formatada += f"\n\n**Total:** R$ {dados_carrinho['valor_total']:.2f}"
+    return resposta_formatada
+
+
 async def orquestrar_chat(mensagem: MensagemChat):
     sessao_id = mensagem.sessao_id
+    correlation_id = uuid.uuid4()
+    print(f"INFO: correlation_id={correlation_id} id_sessao={sessao_id} status=iniciado mensagem='{mensagem.texto}'")
     tool_call_a_executar: ToolCall
 
-    if sessao_id in _session_cache and _session_cache[sessao_id].get('state') == 'aguardando_escolha_item':
+    # TRANSITÓRIO: PR#1 - Curto-circuito para visualização de carrinho
+    padrao_carrinho = re.compile(r'\b(carrinh[oa]s?|ver carrinho|meu carrinho|mostrar carrinho|exibir carrinho)\b', re.IGNORECASE)
+    if padrao_carrinho.search(mensagem.texto):
+        tool_call_a_executar = ToolCall(tool_name="ver_carrinho", parameters={})
+    elif sessao_id in _session_cache and _session_cache[sessao_id].get('state') == 'aguardando_escolha_item':
+        print(f"INFO: correlation_id={correlation_id} id_sessao={sessao_id} rota_escolhida=extrair_escolha_do_contexto fonte=memoria_de_sessao")
         aliases = await _get_unit_aliases()
         contexto_salvo = _session_cache[sessao_id]['data']
         tool_call_a_executar = _extrair_escolha_do_contexto(mensagem.texto, contexto_salvo, aliases)
     else:
-        prompt_mestre = await _get_prompt_template("prompt_mestre")
-        prompt_a_usar = prompt_mestre.format(contexto_da_conversa="")
-        tool_call_a_executar = await chamar_ollama(mensagem.texto, prompt_a_usar)
+         # Classificação da intenção via LLM
+        prompt_triagem = await _get_prompt_template("prompt_triagem_intencao")
+        classificacao_json = await _chamar_llm_para_json(mensagem.texto, prompt_triagem)
+        categoria = classificacao_json.get("categoria", "conversa_fiada")
+        print(f"INFO: correlation_id={correlation_id} id_sessao={sessao_id} intencao_classificada={categoria}")
+
+        if categoria == "busca_produto":
+            print(f"INFO: correlation_id={correlation_id} id_sessao={sessao_id} rota_escolhida=chamar_llm_para_ferramenta fonte=prompt_mestre")
+            prompt_mestre = await _get_prompt_template("prompt_mestre")
+            tool_call_a_executar = await chamar_ollama(mensagem.texto, prompt_mestre)
+            print(f"INFO: correlation_id={correlation_id} id_sessao={sessao_id} llm_tool_name={tool_call_a_executar.tool_name}")
+        elif categoria in ["saudacao", "conversa_fiada"]:
+            tool_call_a_executar = ToolCall(tool_name="handle_chitchat", parameters={"mensagem": "Olá! Sou G.A.V., seu assistente de vendas. Como posso te ajudar a encontrar produtos hoje?"})
+        else:
+            # Fallback para qualquer outra categoria não tratada
+            tool_call_a_executar = ToolCall(tool_name="handle_chitchat", parameters={"mensagem": "Desculpe, não entendi. Você pode tentar perguntar sobre um produto?"})
         
+    # ETAPA 2: EXECUÇÃO DA FERRAMENTA E RESPOSTA
+   
     async with httpx.AsyncClient() as client:
         log_payload = {
             "sessao_id": mensagem.sessao_id, "mensagem_usuario": mensagem.texto,
@@ -145,29 +203,48 @@ async def orquestrar_chat(mensagem: MensagemChat):
         }
         await client.post(f"{settings.API_NEGOCIO_URL}/logs/interacao", json=log_payload)
 
-    resposta_final = await executar_ferramenta(tool_call_a_executar, mensagem)
+    resposta_final = await executar_ferramenta(tool_call_a_executar, mensagem, correlation_id)
+    print(f"INFO: correlation_id={correlation_id} id_sessao={sessao_id} status=concluido")
     return resposta_final
 
-async def executar_ferramenta(tool_call: ToolCall, mensagem: MensagemChat):
+async def executar_ferramenta(tool_call: ToolCall, mensagem: MensagemChat, correlation_id: uuid.UUID):
     """Executa a ferramenta decidida pelo LLM e gerencia o estado da memória."""
     sessao_id = mensagem.sessao_id
     
+    # Oculta parâmetros potencialmente grandes ou sensíveis dos logs de execução
+    params_log = {k: v for k, v in tool_call.parameters.items() if k not in ["contexto"]}
+    print(f"INFO: correlation_id={correlation_id} id_sessao={sessao_id} executando_ferramenta={tool_call.tool_name} parametros={params_log}")
+     
+     
     # Se a ação for conclusiva (adicionar item, ver carrinho), limpa a memória para a próxima conversa.
-    if tool_call.tool_name in ["adicionar_item_carrinho", "ver_carrinho"]:
+    if tool_call.tool_name in ["adicionar_item_carrinho"]:
         _session_cache.pop(sessao_id, None)
         
     async with httpx.AsyncClient(timeout=30.0) as client:
         if tool_call.tool_name == "buscar_produtos":
             url_busca = f"{settings.API_NEGOCIO_URL}/produtos/busca"
             
-            # Montagem segura do payload para a API
+            # PR#4: Bloco de validação e limpeza dos parâmetros do LLM
+            query = tool_call.parameters.get("query", "").strip()
+            ordenar_por = tool_call.parameters.get("ordenar_por")
+
+            if not query:
+                print(f"WARN: correlation_id={correlation_id} id_sessao={sessao_id} erro_validacao='Query do LLM estava vazia. Abortando busca.'")
+                return {"resposta": "Não entendi o que você quer procurar. Pode tentar de novo, por favor?"}
+
             payload = {
-                "query": tool_call.parameters.get("query", ""),
+                "query": query,
                 "codfilial": 2, 
-                "limit": 10,
-                "ordenar_por": tool_call.parameters.get("ordenar_por", "relevancia")
+                "limit": 10
             }
             
+            # Apenas adiciona 'ordenar_por' se for um valor válido, evitando a string vazia.
+            if ordenar_por in ["preco_asc", "preco_desc"]:
+                payload["ordenar_por"] = ordenar_por
+            
+            print(f"INFO: correlation_id={correlation_id} id_sessao={sessao_id} api_negocio_payload={payload}")
+
+            url_busca = f"{settings.API_NEGOCIO_URL}/produtos/busca"
             response = await client.post(url_busca, json=payload)
             response.raise_for_status()
             dados_api = response.json()
@@ -205,13 +282,15 @@ async def executar_ferramenta(tool_call: ToolCall, mensagem: MensagemChat):
             response.raise_for_status()
             return {"resposta": "Item adicionado ao carrinho com sucesso!"}
 
-        elif tool_call.tool_name == "ver_carrinho":
+        elif tool_call.tool_name == "ver_carrinho": # Mantido para o bypass
             url_ver_carrinho = f"{settings.API_NEGOCIO_URL}/carrinhos/{sessao_id}"
             response = await client.get(url_ver_carrinho)
-            response.raise_for_status()
-            return response.json()
+            # Não precisa de raise_for_status, pois a API já trata 404 como "carrinho não encontrado" que resulta em vazio
+            dados_carrinho = response.json() if response.status_code == 200 else {}
+            return {"resposta": await formatar_resposta_carrinho(dados_carrinho)}
             
-        elif tool_call.tool_name == "handle_chitchat":
+        # PR#5: Aceita tanto o nome antigo quanto o novo nome padronizado.
+        elif tool_call.tool_name in ["handle_chitchat", "emitir_resposta"]:
             return {"resposta": tool_call.parameters.get("mensagem")}
 
     raise HTTPException(status_code=400, detail=f"Ferramenta '{tool_call.tool_name}' não implementada.")
