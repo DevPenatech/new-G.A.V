@@ -13,7 +13,25 @@ from pathlib import Path
 _session_cache = {}
 _prompt_cache = {}
 _unit_alias_cache = None
-_modelfile_content = None # Global variable for modelfile
+
+_modelfile_content = None # Variável global para o modelfile
+
+def _carregar_modelfile():
+    """Carrega o conteúdo do Modelfile para a memória."""
+    global _modelfile_content
+    if _modelfile_content is None:
+        try:
+            modelfile_path = Path(__file__).parent / "gav_modelfile.md"
+            with open(modelfile_path, "r", encoding="utf-8") as f:
+                _modelfile_content = f.read()
+            print("INFO: Modelfile carregado com sucesso.")
+        except FileNotFoundError:
+            print("WARN: gav_modelfile.md não encontrado. Usando um system prompt padrão.")
+            _modelfile_content = "Você é um assistente prestativo."
+    return _modelfile_content
+
+# Carrega o modelfile na inicialização do módulo
+_carregar_modelfile()
 
 def _carregar_modelfile():
     """Carrega o conteúdo do Modelfile para a memória."""
@@ -84,7 +102,7 @@ async def chamar_ollama(texto_usuario: str, prompt_sistema: str) -> ToolCall:
     prompt_combinado = f"{_modelfile_content}\n\n--- INSTRUÇÕES DA TAREFA ATUAL ---\n\n{prompt_final}"
 
     payload = { "model": settings.OLLAMA_MODEL_NAME, "temperature": 0.1, "messages": [{"role": "system", "content": prompt_combinado}, {"role": "user", "content": texto_usuario}], "format": "json", "stream": False }
-     
+      
     async with httpx.AsyncClient(timeout=180.0) as client:
         try:
             response = await client.post(url_ollama, json=payload)
@@ -112,7 +130,7 @@ async def _chamar_llm_para_json(texto_usuario: str, prompt_sistema: str) -> dict
     prompt_combinado = f"{_modelfile_content}\n\n--- INSTRUÇÕES DA TAREFA ATUAL ---\n\n{prompt_sistema}"
 
     payload = {"model": settings.OLLAMA_MODEL_NAME, "temperature": 0.1, "messages": [{"role": "system", "content": prompt_combinado}, {"role": "user", "content": texto_usuario}], "format": "json", "stream": False}
-
+ 
     try:
         async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.post(url_ollama, json=payload)
