@@ -71,19 +71,6 @@ async def chamar_ollama(texto_usuario: str, prompt_sistema: str) -> ToolCall:
     """Chama o LLM esperando especificamente um JSON no formato ToolCall."""
     url_ollama = f"{settings.OLLAMA_HOST}/api/chat"
     
-    # Se prompt_sistema for um dict, formata com exemplos (lógica sincronizada)
-    if isinstance(prompt_sistema, dict):
-        template = prompt_sistema.get("template", "")
-        exemplos = prompt_sistema.get("exemplos", [])
-        
-        exemplos_formatados = []
-        for ex in exemplos:
-            exemplos_formatados.append(f"Exemplo de Input do Usuário: \"{ex['exemplo_input']}\"\nExemplo de Output JSON Esperado: {ex['exemplo_output_json']}")
-        
-        prompt_final = f"{template}\n\n--- EXEMPLOS DE USO ---\n" + "\n\n".join(exemplos_formatados)
-    else:
-        prompt_final = prompt_sistema
-
 
     # Se prompt_sistema for um dict (vindo do _get_prompt_template), formata com exemplos
     if isinstance(prompt_sistema, dict):
@@ -126,11 +113,23 @@ async def _chamar_llm_para_json(texto_usuario: str, prompt_sistema: str) -> dict
     """Função genérica para chamar o LLM e obter uma resposta JSON."""
     url_ollama = f"{settings.OLLAMA_HOST}/api/chat"
 
-    # Combina o Modelfile com o prompt específico da tarefa
-    prompt_combinado = f"{_modelfile_content}\n\n--- INSTRUÇÕES DA TAREFA ATUAL ---\n\n{prompt_sistema}"
 
+    # --- INÍCIO DA CORREÇÃO ---
+    # Adiciona a mesma lógica de tratamento de exemplos que a 'chamar_ollama' possui.
+    if isinstance(prompt_sistema, dict):
+        template = prompt_sistema.get("template", "")
+        exemplos = prompt_sistema.get("exemplos", [])
+        exemplos_formatados = []
+        for ex in exemplos:
+            exemplos_formatados.append(f"Exemplo de Input do Usuário: \"{ex['exemplo_input']}\"\nExemplo de Output JSON Esperado: {ex['exemplo_output_json']}")
+        prompt_final = f"{template}\n\n--- EXEMPLOS DE USO ---\n" + "\n\n".join(exemplos_formatados)
+    else:
+        prompt_final = prompt_sistema
+
+    prompt_combinado = f"{_modelfile_content}\n\n--- INSTRUÇÕES DA TAREFA ATUAL ---\n\n{prompt_final}"
     payload = {"model": settings.OLLAMA_MODEL_NAME, "temperature": 0.1, "messages": [{"role": "system", "content": prompt_combinado}, {"role": "user", "content": texto_usuario}], "format": "json", "stream": False}
- 
+    # --- FIM DA CORREÇÃO ---
+
     try:
         async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.post(url_ollama, json=payload)
@@ -271,26 +270,19 @@ async def executar_ferramenta(tool_call: ToolCall, mensagem: MensagemChat, corre
             url_busca = f"{settings.API_NEGOCIO_URL}/produtos/busca"
             
             # PR#4: Bloco de validação e limpeza dos parâmetros do LLM
-            # --- ETAPA 1: CORREÇÃO DA QUERY COM IA ---
-            prompt_correcao_template = await _get_prompt_template("prompt_corrigir_busca")
-            json_corrigido = await _chamar_llm_para_json(mensagem.texto, prompt_correcao_template)
-            query_corrigida = json_corrigido.get("query_corrigida", "").strip()
-
-            # Usa a query original se a correção falhar ou vier vazia.
-            query_final_para_api = query_corrigida if query_corrigida else tool_call.parameters.get("query", "").strip()
-
-            print(f"INFO: correlation_id={correlation_id} id_sessao={sessao_id} query_original='{tool_call.parameters.get('query')}' query_corrigida='{query_final_para_api}'")
-
-            # A extração de "ordenar_por" continua a mesma, baseada no prompt_mestre original.
-             
+            # O prompt_mestre agora faz a correção E a extração, então a chamada dupla foi removida.
+            
+            query = tool_call.parameters.get("query", "").strip()
             ordenar_por = tool_call.parameters.get("ordenar_por")
 
-            if not query_final_para_api:
+            print(f"INFO: correlation_id={correlation_id} id_sessao={sessao_id} query_extraida='{query}'")
+
+            if not query:
                 print(f"WARN: correlation_id={correlation_id} id_sessao={sessao_id} erro_validacao='Query do LLM estava vazia. Abortando busca.'")
                 return {"resposta": "Não entendi o que você quer procurar. Pode tentar de novo, por favor?"}
 
             payload = {
-                "query": query_final_para_api,
+                "query": query,
                 "codfilial": 2, 
                 "limit": 10
             }
@@ -319,12 +311,15 @@ async def executar_ferramenta(tool_call: ToolCall, mensagem: MensagemChat, corre
                 _session_cache.pop(sessao_id, None) # Limpa se não precisar de escolha
 
             contexto_fatos = _preparar_contexto_para_ia(dados_api)
-            # --- CORREÇÃO: Extrai o template do dicionário antes de formatar ---
-            prompt_data_resposta = await _get_prompt_template("prompt_gerar_resposta_busca")
-            prompt_data_resposta["template"] = prompt_data_resposta["template"].format(contexto=contexto_fatos, mensagem_usuario=mensagem.texto)
-  
-            tool_call_resposta = await chamar_ollama(mensagem.texto, prompt_data_resposta) # Passa o objeto completo para o LLM
             
+            # --- CORREÇÃO DEFINITIVA DO BUG 'dict object has no attribute format' ---
+            prompt_data_resposta = await _get_prompt_template("prompt_gerar_resposta_busca")
+            # Modifica a string 'template' DENTRO do dicionário, preservando a estrutura
+            prompt_data_resposta["template"] = prompt_data_resposta["template"].format(contexto=contexto_fatos, mensagem_usuario=mensagem.texto)
+            
+            # AGORA, passamos apenas a string do template formatado, pois a 'chamar_ollama' não precisa dos exemplos para esta tarefa
+            tool_call_resposta = await chamar_ollama(mensagem.texto, prompt_data_resposta["template"])
+
             resposta_final_obj = {"resposta": tool_call_resposta.parameters.get("mensagem")}
             resposta_final_obj["dados_da_busca"] = dados_api.get("resultados", [])
             return resposta_final_obj
