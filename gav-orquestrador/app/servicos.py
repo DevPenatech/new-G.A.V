@@ -96,7 +96,13 @@ async def chamar_ollama(texto_usuario: str, prompt_sistema: str) -> ToolCall:
             response.raise_for_status()
             resposta_str = response.json()["message"]["content"]
             try:
-                tool_call_data = json.loads(resposta_str)
+                # CORREÇÃO: Adiciona .strip() para remover quebras de linha
+                # ou espaços no início/fim da resposta do LLM.
+                # LOG DE DIAGNÓSTICO: Mostra a resposta bruta e a resposta limpa.
+                print(f"DEBUG: Resposta bruta do LLM: >>>{resposta_str}<<<")
+                resposta_limpa = resposta_str.strip()
+                print(f"DEBUG: Resposta após .strip(): >>>{resposta_limpa}<<<")
+                tool_call_data = json.loads(resposta_limpa)
                 if "tool_name" in tool_call_data and "parameters" in tool_call_data:
                     return ToolCall(**tool_call_data)
                 else: raise ValueError("JSON não tem a estrutura de ToolCall")
@@ -143,7 +149,9 @@ async def _chamar_llm_para_json(texto_usuario: str, prompt_sistema: str) -> dict
             if payload["format"] == "text":
                 return resposta_str
             else: # Senão, tenta fazer o parse do JSON
-                return json.loads(resposta_str)
+                # CORREÇÃO: Adiciona .strip() aqui também por segurança.
+                print("Retorno "+resposta_str.strip())
+                return json.loads(resposta_str.strip())
 
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Timeout ao chamar o LLM para classificação.")
@@ -164,63 +172,79 @@ async def _get_unit_aliases() -> dict:
 
 
 def _extrair_escolha_do_contexto(texto_usuario: str, contexto_busca: list, aliases: dict) -> ToolCall:
-    texto_lower = texto_usuario.lower()
-    quantidade = 1
-    match_num = re.search(r'\b(\d+)\b', texto_lower)
-    if match_num:
-        quantidade = int(match_num.group(1))
-    else:
-        mapa_palavras = {"uma": 1, "duas": 2, "três": 3, "quatro": 4, "cinco": 5}
-        for palavra, num in mapa_palavras.items():
-            if palavra in texto_lower:
-                quantidade = num
-                break
+    """
+    [FUNÇÃO ATUALIZADA] Extrai a escolha do usuário de forma mais robusta,
+    priorizando a extração de quantidade e depois identificando o item.
+    """
+    texto_lower = texto_usuario.lower().strip()
+    quantidade_extraida = 1
+    texto_sem_quantidade = texto_lower
     
-    match_id = re.search(r'item (\d+)\b', texto_lower)
-    if match_id:
-        item_id_escolhido = int(match_id.group(1))
-        for produto in contexto_busca:
-            for item in produto.get("itens", []):
-                if item['id'] == item_id_escolhido:
-                    print(f"Escolha extraída por ID: {item_id_escolhido}, Quantidade: {quantidade}")
-                    return ToolCall(tool_name="adicionar_item_carrinho", parameters={"item_id": item_id_escolhido, "quantidade": quantidade})
+    # 1. Tenta extrair a quantidade primeiro para evitar confundir com o código do produto
+    mapa_palavras = {"uma": 1, "um": 1, "duas": 2, "dois": 2, "três": 3, "quatro": 4, "cinco": 5}
+    for palavra, num in mapa_palavras.items():
+        if f' {palavra} ' in f' {texto_lower} ':
+            quantidade_extraida = num
+            texto_sem_quantidade = texto_lower.replace(palavra, '')
+            break # Para na primeira palavra numérica encontrada
 
-    for produto in contexto_busca:
-        for item in produto.get("itens", []):
-            unidade_lower = item['unidade'].lower()
-            if f" {unidade_lower} " in f" {texto_lower} ":
-                 print(f"Escolha extraída por unidade: {unidade_lower} -> item {item['id']}, Quantidade: {quantidade}")
-                 return ToolCall(tool_name="adicionar_item_carrinho", parameters={"item_id": item['id'], "quantidade": quantidade})
-            for alias, unidade_principal in aliases.items():
-                if unidade_principal.lower() == unidade_lower and alias in texto_lower:
-                    print(f"Escolha extraída por alias: {alias} -> {unidade_principal} -> item {item['id']}, Quantidade: {quantidade}")
-                    return ToolCall(tool_name="adicionar_item_carrinho", parameters={"item_id": item['id'], "quantidade": quantidade})
-    
+    match_num = re.search(r'\b(\d{1,3})\b', texto_lower) # Procura números pequenos (até 3 dígitos)
+    if match_num:
+        numero = int(match_num.group(1))
+        # Evita confundir com código do produto se for um número grande
+        if numero < 1000:
+            quantidade_extraida = numero
+            texto_sem_quantidade = texto_lower.replace(match_num.group(0), '', 1)
+
+    # 2. Agora, busca pelo item no texto que já não tem (potencialmente) a quantidade
+    texto_para_busca = texto_sem_quantidade
+
+    # Prioriza a busca por código do produto (número de 5+ dígitos)
+    match_codprod = re.search(r'\b(\d{5,})\b', texto_para_busca)
+    if match_codprod:
+        codprod_escolhido = int(match_codprod.group(1))
+        for produto in contexto_busca:
+            if produto.get('codprod') == codprod_escolhido:
+                # Pega o primeiro item (geralmente a unidade) deste produto
+                if produto.get("itens"):
+                    item_id_escolhido = produto["itens"][0]['id']
+                    print(f"Escolha extraída por CÓDIGO DE PRODUTO: {codprod_escolhido} -> item {item_id_escolhido}, Quantidade: {quantidade_extraida}")
+                    return ToolCall(tool_name="adicionar_item_carrinho", parameters={"item_id": item_id_escolhido, "quantidade": quantidade_extraida})
+
     print("Não foi possível extrair a escolha do usuário. Tratando como nova busca.")
     return None
 
 
 
 def _preparar_contexto_para_ia(dados_api: dict) -> str:
+    """
+    [FUNÇÃO RESTAURADA E MELHORADA] Formata os dados da busca em um texto rico
+        para o LLM, incluindo unidades, preços e códigos.
+     """
     resultados = dados_api.get("resultados", [])
-    if not resultados: return "Nenhum produto encontrado."
+    if not resultados:
+        return "Nenhum produto encontrado."
+
     fatos = []
     if dados_api.get("status_busca") == "fallback":
-        fatos.append("Não encontrei a embalagem exata que você pediu, mas achei o produto nestas outras opções:")
-    for produto in resultados[:3]:
-        desc = produto.get("descricaoweb") or produto.get("descricao", "Produto sem descrição")
-        fatos.append(f"\n**{desc}**")
+        fatos.append("[AVISO] Não encontrei a embalagem exata, mas achei o produto nestas outras opções:")
+
+    # Limita a 5 itens para não exceder o contexto e focar nos mais relevantes.
+    for produto in resultados[:4]: # Limita a 4 para não sobrecarregar
+        desc = produto.get('descricaoweb') or produto.get('descricao', 'Produto sem descrição')
+        codprod = produto.get('codprod', 'N/A')
+        
+        itens_str = []
         for item in produto.get("itens", []):
-            if item.get("pvenda") is not None:
-                preco = item.get("poferta") or item.get("pvenda")
-                # Monta a linha para cada item, agora incluindo o ID
-                linha_item = f"- Item `{item['id']}`: {item['unidade']} com {item['qtunit']} und. - **R$ {preco:.2f}**"
-                
-                # Adiciona uma tag de promoção se houver
-                if item.get("poferta") and item.get("pvenda") and item.get("poferta") < item.get("pvenda"):
-                    linha_item += " *(OFERTA!)*"
-                fatos.append(linha_item)
-                
+            unidade = item.get('unidade', '')
+            preco = item.get('poferta') or item.get('pvenda')
+            # Valida se o preço é um número válido e maior que zero.
+            if isinstance(preco, (int, float)) and preco > 0:
+                itens_str.append(f"{unidade}: R$ {preco:.2f}")
+
+        if itens_str:
+            fatos.append(f"- (cód {codprod}) {desc} — {' | '.join(itens_str)}")
+
     return "\n".join(fatos)
 
 async def formatar_resposta_carrinho(dados_carrinho: dict) -> str:
@@ -263,6 +287,11 @@ async def orquestrar_chat(mensagem: MensagemChat):
 
 async def executar_ferramenta(tool_call: ToolCall, mensagem: MensagemChat, correlation_id: uuid.UUID):
     """Executa a ferramenta decidida pelo LLM e gerencia o estado da memória."""
+    # --- LOG DE DIAGNÓSTICO DEFINITIVO ---
+    # Se esta mensagem não aparecer nos logs, o arquivo no contêiner não foi atualizado.
+    print("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CODIGO (servicos.py) ---")
+    # ------------------------------------
+
     sessao_id = mensagem.sessao_id
     
     # Oculta parâmetros potencialmente grandes ou sensíveis dos logs de execução
@@ -322,15 +351,29 @@ async def executar_ferramenta(tool_call: ToolCall, mensagem: MensagemChat, corre
             contexto_fatos = _preparar_contexto_para_ia(dados_api)
 
             # --- CORREÇÃO DEFINITIVA DO BUG: Acessa o template aninhado e trabalha com uma cópia ---
-            prompt_data_original = await _get_prompt_template("prompt_sucesso_busca")
-            # Cria uma cópia para não poluir o cache com o prompt formatado
-            prompt_data_resposta = prompt_data_original.copy()
-            # Acessa a chave "template" DENTRO do objeto "template" principal
-            prompt_data_resposta["template"] = prompt_data_original["template"]["template"].format(contexto=contexto_fatos, mensagem_usuario=mensagem.texto)
-
-            tool_call_resposta = await chamar_ollama(mensagem.texto, prompt_data_resposta)
+            # 1. CORREÇÃO DO NOME DO PROMPT: Alterado de "prompt_sucesso_busca" para o nome correto do seu banco.
+            prompt_data_original = await _get_prompt_template("prompt_gerar_resposta_busca")
+ 
+            # 2. CORREÇÃO DA FORMATAÇÃO: Formata o template ANTES de passar para o LLM.
+            # Garante que a estrutura (template + exemplos) seja mantida para a função `chamar_ollama`.
+            prompt_para_llm = prompt_data_original.copy() # Cria uma cópia para não modificar o cache
+            template_string = prompt_data_original.get("template", {}).get("template", "")
+            
+            # A variável no prompt é {contexto_busca}, conforme definimos anteriormente.
+            prompt_para_llm["template"] = template_string.format(contexto_busca=contexto_fatos)
                                                      
-            resposta_final_obj = {"resposta": tool_call_resposta.parameters.get("mensagem")}
+            tool_call_resposta = await chamar_ollama(mensagem.texto, prompt_para_llm)
+    
+                                                     
+            # [NOVA LÓGICA ROBUSTA] - Lida com a alucinação do LLM
+            final_message = tool_call_resposta.parameters.get("mensagem")
+            # Se o LLM não usou a chave "mensagem", mas usou "produtos"
+            if not final_message and "produtos" in tool_call_resposta.parameters:
+                produtos_formatados = tool_call_resposta.parameters["produtos"]
+                # Junta a lista de produtos em uma única string de texto
+                final_message = "\n".join(produtos_formatados)
+
+            resposta_final_obj = {"resposta": final_message}
             resposta_final_obj["dados_da_busca"] = dados_api.get("resultados", [])
             
             return resposta_final_obj

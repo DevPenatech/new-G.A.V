@@ -5,6 +5,17 @@ versao_manifesto: 1.0
 
 # Regras de roteamento são executadas em ordem. A primeira que corresponder é executada.
 roteamento:
+  # Regra 0: Bypass para Saudações. É uma ação determinística e rápida.
+  - nome: "Saudação Simples (Bypass)"
+    bypass_llm: true
+    condicoes:
+      - tipo: regex
+        # Regex mais específica para evitar falsos positivos com "adicionar ao carrinho"
+        padrao: '^\s*(ver|mostrar|exibir|meu)?\s*carrinh[oa]s?\b'
+    acao:
+      tool_name: "emitir_resposta"
+      parametros: { "mensagem": "Olá! Como posso te ajudar hoje?" }
+
   # Regra 1: Bypass para ver o carrinho. É uma ação determinística.
   - nome: "Verificar Carrinho (Bypass)"
     bypass_llm: true
@@ -25,31 +36,9 @@ roteamento:
       handler: "extrair_escolha_do_contexto"
 
   # Regra 3: Rota Padrão com IA (Master Prompt)
+  # Esta é a regra que usamos para todas as buscas de produto.
   - nome: "Análise de Intenção e Extração de Parâmetros com IA"
     bypass_llm: false
     acao:
-      tipo: "triagem_llm"
-      prompt: "prompt_triagem_intencao"
-      mapeamento_intencao:
-        - intencao: "busca_produto"
-          acao:
-            passos:
-              - tipo: "extracao_parametros_llm"
-                prompt: "prompt_mestre"
-                # Saída esperada: {"tool_name":"buscar_produtos","parameters":{"query":"...","ordenar_por":"..."}}
-              - tipo: "executar_ferramenta"
-                ferramenta: "buscar_produtos"
-                # O orquestrador deve usar os "parameters" retornados no passo anterior.
-              - tipo: "geracao_llm"
-                prompt: "prompt_gerar_resposta_busca"   # <<< AQUI está o gerador que faltava
-                # Entrada recomendada ao LLM: um resumo compacto dos top itens com codprod, UN/CX e preços.
-        # (opcional) roteamentos adicionais:
-        - intencao: "escolha_de_item"
-          acao:
-            handler: "extrair_escolha_do_contexto"
-        - intencao: "saudacao"
-          acao:
-            handler: "saudacao_padrao"
-        - intencao: "conversa_fiada"
-          acao:
-            handler: "handle_chitchat"
+      tipo: "extracao_parametros_llm"
+      prompt: "prompt_mestre"

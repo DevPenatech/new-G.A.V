@@ -1,11 +1,26 @@
 # gav-orquestrador/app/main.py
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from . import servicos, esquemas
 
 app = FastAPI(
     title="G.A.V. - Orquestrador de IA",
     version="1.0.0"
+)
+
+# 2. Adicione o bloco de configuração do CORS
+origins = [
+    "http://localhost",
+    "http://localhost:3000", # Adicione a porta em que seu React está rodando, se for diferente
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"], # Permite todos os métodos (GET, POST, OPTIONS, etc)
+    allow_headers=["*"], # Permite todos os cabeçalhos
 )
 
 # ... (healthcheck continua o mesmo) ...
@@ -34,9 +49,16 @@ async def webhook_webchat(mensagem: esquemas.MensagemChat):
             conteudo_markdown=resultado_interno.get("resposta", ""),
             dados_da_busca=resultado_interno.get("dados_da_busca")
         )
-    except Exception as e:
+    except Exception:
+        # [NOVO BLOCO DE LOG] - Captura e loga a exceção completa com traceback
+        # para sabermos exatamente onde e por que o erro está acontecendo.
+        import traceback
+        tb_str = traceback.format_exc()
+        print(f"ERRO CRÍTICO NO ORQUESTRADOR: {tb_str}")
+        # Mantém o erro 500, mas agora teremos o log completo para análise.
         # Em um cenário real, teríamos um tratamento de erro mais granular aqui.
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Ocorreu um erro interno no orquestrador.")
+ 
 
 @app.post("/webhook/whatsapp", response_model=esquemas.RespostaWhatsapp, tags=["Canais"])
 async def webhook_whatsapp(mensagem: esquemas.MensagemWhatsapp):
