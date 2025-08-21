@@ -61,24 +61,16 @@ async def rotear_e_decidir_acao(mensagem, correlation_id) -> ToolCall:
                 else:
                     condicoes_satisfeitas = False
 
-    # Se nenhuma regra de bypass foi ativada, executa a triagem padrão
-    regra_triagem = manifesto["roteamento"][-1] # Assume que a última regra é a de triagem
-    print(f"INFO: correlation_id={correlation_id} id_sessao={mensagem.sessao_id} regra_ativada='{regra_triagem['nome']}'")
-    
-    prompt_triagem = await servicos._get_prompt_template(regra_triagem["acao"]["prompt"])
-    classificacao_json = await servicos._chamar_llm_para_json(mensagem.texto, prompt_triagem)
-    categoria = classificacao_json.get("categoria", "conversa_fiada")
-    print(f"INFO: correlation_id={correlation_id} id_sessao={mensagem.sessao_id} intencao_classificada={categoria}")
-
-    # Mapeia a intenção classificada para a ação correspondente no manifesto
-    for mapeamento in regra_triagem["acao"]["mapeamento_intencao"]:
-        if categoria in mapeamento["intencao"]:
-            acao_mapeada = mapeamento["acao"]
-            if acao_mapeada["tipo"] == "extracao_parametros_llm":
-                prompt_extracao = await servicos._get_prompt_template(acao_mapeada["prompt"])
-                return await servicos.chamar_ollama(mensagem.texto, prompt_extracao)
-            elif "tool_name" in acao_mapeada: # Ação direta de ferramenta (ex: saudação)
-                return ToolCall(tool_name=acao_mapeada["tool_name"], parameters=acao_mapeada.get("parametros", {}))
+    # Se nenhuma regra de bypass foi ativada, executa a rota padrão com IA
+    regra_padrao = manifesto["roteamento"][-1] # Assume que a última regra é a de IA
+    acao_padrao = regra_padrao["acao"]
+    print(f"INFO: correlation_id={correlation_id} id_sessao={mensagem.sessao_id} regra_ativada='{regra_padrao['nome']}'")
+ 
+    if acao_padrao.get("tipo") == "extracao_parametros_llm":
+        prompt_data = await servicos._get_prompt_template(acao_padrao["prompt"])
+        tool_call_dict = await servicos._chamar_llm_para_json(mensagem.texto, prompt_data)
+        return ToolCall(**tool_call_dict) # <-- AQUI ESTÁ A CORREÇÃO
+ 
 
     # Fallback final
     return ToolCall(tool_name="emitir_resposta", parameters={"mensagem": "Desculpe, não consegui processar sua solicitação."})

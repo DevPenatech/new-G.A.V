@@ -135,6 +135,19 @@ CREATE TABLE prompt_templates (
 );
 COMMENT ON TABLE prompt_templates IS 'Central de templates de prompt para o LLM.';
 
+-- === GERENCIAMENTO DE IA (ADICIONAR NO FINAL DA SEÇÃO) ===
+
+-- Tabela para armazenar exemplos para Few-Shot Prompting
+CREATE TABLE prompt_exemplos (
+    id SERIAL PRIMARY KEY,
+    prompt_id INTEGER NOT NULL REFERENCES prompt_templates(id) ON DELETE CASCADE,
+    exemplo_input TEXT NOT NULL,
+    exemplo_output_json TEXT NOT NULL,
+    ativo BOOLEAN DEFAULT TRUE,
+    criado_em TIMESTAMPTZ DEFAULT NOW()
+);
+COMMENT ON TABLE prompt_exemplos IS 'Armazena pares de input/output para ensinar os prompts (Few-Shot).';
+
 -- Populando com nossos prompts atuais
 INSERT INTO prompt_templates (nome, template) VALUES 
 ('prompt_mestre', E'Você é G.A.V., um assistente de vendas e orquestrador de ferramentas. Sua única e exclusiva função é analisar a mensagem do usuário e retornar um JSON válido contendo o `tool_name` e os `parameters` da ferramenta mais apropriada a ser chamada.\n\nVocê NUNCA deve conversar com o usuário ou enviar qualquer texto que não seja o JSON final.\n\nAs ferramentas disponíveis são:\n- `buscar_produtos`: Usada para buscar produtos por texto.\n  - `query`: o termo de busca.\n  - `ordenar_por` (opcional): ''preco_asc'' para "barato", ''preco_desc'' para "caro".\n- `iniciar_adicao_item_carrinho`: Intenção de adicionar um item ao carrinho quando o ID não é fornecido.\n  - `nome_produto`: o nome do produto para buscar.\n  - `quantidade`: a quantidade desejada.\n- `adicionar_item_carrinho`: Adiciona um item específico ao carrinho usando seu ID.\n  - `item_id`: o ID numérico do item (SKU).\n  - `quantidade`: a quantidade desejada.\n- `ver_carrinho`: Usada para ver o conteúdo do carrinho. Sem parâmetros.\n\nAnalise a mensagem e retorne APENAS o JSON da ferramenta.'),

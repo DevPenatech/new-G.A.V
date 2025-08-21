@@ -102,7 +102,6 @@ class Prompt(PromptCreate):
 
     class Config:
         from_attributes = True
-        
 
 class ProdutoAliasCreate(BaseModel):
     alias: str
@@ -112,6 +111,17 @@ class ProdutoAlias(ProdutoAliasCreate):
     id: int
     produto_id: int
     ativo: bool
+
+    class Config:
+        from_attributes = True
+        
+class PromptExemploCreate(BaseModel):
+    exemplo_input: str
+    exemplo_output_json: str
+
+class PromptExemplo(PromptExemploCreate):
+    id: int
+    prompt_id: int
 
     class Config:
         from_attributes = True

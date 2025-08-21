@@ -283,11 +283,16 @@ def get_carrinho_detalhado(db: Session, carrinho_id: int):
 def get_prompt_ativo_por_nome(db: Session, nome: str) -> str:
     """Busca o template de um prompt ativo pelo seu nome único."""
     stmt = text("SELECT template FROM prompt_templates WHERE nome = :nome AND ativo = TRUE ORDER BY versao DESC LIMIT 1")
-    resultado = db.execute(stmt, {"nome": nome}).scalar_one_or_none()
-    if not resultado:
+    prompt_template = db.execute(stmt, {"nome": nome}).scalar_one_or_none()
+
+    if not prompt_template:
         # Um fallback de emergência caso o prompt não seja encontrado no banco
-        return "Você é um assistente prestativo. Responda em JSON."
-    return resultado
+        return {"template": "Você é um assistente prestativo. Responda em JSON.", "exemplos": []}
+
+    # Busca os exemplos associados
+    stmt_exemplos = text("SELECT exemplo_input, exemplo_output_json FROM prompt_exemplos WHERE prompt_id = (SELECT id FROM prompt_templates WHERE nome = :nome AND ativo = TRUE ORDER BY versao DESC LIMIT 1) AND ativo = TRUE")
+    exemplos = db.execute(stmt_exemplos, {"nome": nome}).mappings().fetchall()
+    return {"template": prompt_template, "exemplos": exemplos}
 
 def get_all_unidade_aliases(db: Session) -> list:
     """Busca todos os aliases de unidade ativos."""
@@ -340,5 +345,18 @@ def update_prompt_status(db: Session, prompt_id: int, ativo: bool) -> dict:
     """Atualiza o status (ativo/inativo) de um prompt."""
     stmt = text("UPDATE prompt_templates SET ativo = :ativo, atualizado_em = NOW() WHERE id = :id RETURNING *;")
     result = db.execute(stmt, {"id": prompt_id, "ativo": ativo})
+    db.commit()
+    return result.first()._mapping
+
+# --- Funções CRUD para Exemplos de Prompts ---
+
+def create_prompt_exemplo(db: Session, prompt_id: int, exemplo: esquemas.PromptExemploCreate):
+    """Cria um novo exemplo para um prompt."""
+    stmt = text("""
+        INSERT INTO prompt_exemplos (prompt_id, exemplo_input, exemplo_output_json)
+        VALUES (:prompt_id, :exemplo_input, :exemplo_output_json)
+        RETURNING *;
+    """)
+    result = db.execute(stmt, {"prompt_id": prompt_id, **exemplo.model_dump()})
     db.commit()
     return result.first()._mapping

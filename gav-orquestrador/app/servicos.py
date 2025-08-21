@@ -8,11 +8,29 @@ import re
 from .config import settings
 from .esquemas import ToolCall, MensagemChat, Feedback
 from fastapi import HTTPException
-
+from pathlib import Path
 
 _session_cache = {}
 _prompt_cache = {}
 _unit_alias_cache = None
+_modelfile_content = None # Global variable for modelfile
+
+def _carregar_modelfile():
+    """Carrega o conteúdo do Modelfile para a memória."""
+    global _modelfile_content
+    if _modelfile_content is None:
+        try:
+            modelfile_path = Path(__file__).parent.parent / "gav_modelfile.md"
+            with open(modelfile_path, "r", encoding="utf-8") as f:
+                _modelfile_content = f.read()
+            print("INFO: Modelfile carregado com sucesso.")
+        except FileNotFoundError:
+            print("WARN: gav_modelfile.md não encontrado. Usando um system prompt padrão.")
+            _modelfile_content = "Você é um assistente prestativo."
+    return _modelfile_content
+
+# Carrega o modelfile na inicialização do módulo
+_carregar_modelfile()
 
 async def _get_prompt_template(nome_prompt: str) -> str:
     if nome_prompt in _prompt_cache: return _prompt_cache[nome_prompt]
@@ -22,17 +40,51 @@ async def _get_prompt_template(nome_prompt: str) -> str:
             response = await client.get(url)
             if response.status_code != 200:
                  raise HTTPException(status_code=response.status_code, detail=f"Erro ao buscar prompt '{nome_prompt}': {response.text}")
-            template = response.json()["template"]
-            _prompt_cache[nome_prompt] = template
-            return template
+            
+            # Agora o endpoint retorna um objeto com template e exemplos
+            prompt_data = response.json()
+            _prompt_cache[nome_prompt] = prompt_data
+            return prompt_data
     except httpx.RequestError:
-        raise HTTPException(status_code=503, detail=f"Não foi possível buscar o prompt '{nome_prompt}'.")
-
+        # Retorna um objeto padrão em caso de falha de conexão
+        return {"template": "Você é um assistente prestativo. Responda em JSON.", "exemplos": []}
+     
 async def chamar_ollama(texto_usuario: str, prompt_sistema: str) -> ToolCall:
     """Chama o LLM esperando especificamente um JSON no formato ToolCall."""
     url_ollama = f"{settings.OLLAMA_HOST}/api/chat"
-    payload = { "model": settings.OLLAMA_MODEL_NAME, "temperature": 0.1, "messages": [{"role": "system", "content": prompt_sistema}, {"role": "user", "content": texto_usuario}], "format": "json", "stream": False }
     
+    # Se prompt_sistema for um dict, formata com exemplos (lógica sincronizada)
+    if isinstance(prompt_sistema, dict):
+        template = prompt_sistema.get("template", "")
+        exemplos = prompt_sistema.get("exemplos", [])
+        
+        exemplos_formatados = []
+        for ex in exemplos:
+            exemplos_formatados.append(f"Exemplo de Input do Usuário: \"{ex['exemplo_input']}\"\nExemplo de Output JSON Esperado: {ex['exemplo_output_json']}")
+        
+        prompt_final = f"{template}\n\n--- EXEMPLOS DE USO ---\n" + "\n\n".join(exemplos_formatados)
+    else:
+        prompt_final = prompt_sistema
+
+
+    # Se prompt_sistema for um dict (vindo do _get_prompt_template), formata com exemplos
+    if isinstance(prompt_sistema, dict):
+        template = prompt_sistema.get("template", "")
+        exemplos = prompt_sistema.get("exemplos", [])
+        
+        exemplos_formatados = []
+        for ex in exemplos:
+            exemplos_formatados.append(f"Exemplo de Input do Usuário: \"{ex['exemplo_input']}\"\nExemplo de Output JSON Esperado: {ex['exemplo_output_json']}")
+        
+        prompt_final = f"{template}\n\n--- EXEMPLOS DE USO ---\n" + "\n\n".join(exemplos_formatados)
+    else: # Mantém compatibilidade caso um prompt simples seja passado
+        prompt_final = prompt_sistema
+     
+    # Combina o Modelfile com o prompt específico da tarefa
+    prompt_combinado = f"{_modelfile_content}\n\n--- INSTRUÇÕES DA TAREFA ATUAL ---\n\n{prompt_final}"
+
+    payload = { "model": settings.OLLAMA_MODEL_NAME, "temperature": 0.1, "messages": [{"role": "system", "content": prompt_combinado}, {"role": "user", "content": texto_usuario}], "format": "json", "stream": False }
+     
     async with httpx.AsyncClient(timeout=180.0) as client:
         try:
             response = await client.post(url_ollama, json=payload)
@@ -55,7 +107,12 @@ async def chamar_ollama(texto_usuario: str, prompt_sistema: str) -> ToolCall:
 async def _chamar_llm_para_json(texto_usuario: str, prompt_sistema: str) -> dict:
     """Função genérica para chamar o LLM e obter uma resposta JSON."""
     url_ollama = f"{settings.OLLAMA_HOST}/api/chat"
-    payload = {"model": settings.OLLAMA_MODEL_NAME, "temperature": 0.1, "messages": [{"role": "system", "content": prompt_sistema}, {"role": "user", "content": texto_usuario}], "format": "json", "stream": False}
+
+    # Combina o Modelfile com o prompt específico da tarefa
+    prompt_combinado = f"{_modelfile_content}\n\n--- INSTRUÇÕES DA TAREFA ATUAL ---\n\n{prompt_sistema}"
+
+    payload = {"model": settings.OLLAMA_MODEL_NAME, "temperature": 0.1, "messages": [{"role": "system", "content": prompt_combinado}, {"role": "user", "content": texto_usuario}], "format": "json", "stream": False}
+
     try:
         async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.post(url_ollama, json=payload)
@@ -123,27 +180,21 @@ def _preparar_contexto_para_ia(dados_api: dict) -> str:
     if not resultados: return "Nenhum produto encontrado."
     fatos = []
     if dados_api.get("status_busca") == "fallback":
-        fatos.append("[FALLBACK] A embalagem exata não foi encontrada, mas o produto existe nestas outras:")
+        fatos.append("Não encontrei a embalagem exata que você pediu, mas achei o produto nestas outras opções:")
     for produto in resultados[:3]:
         desc = produto.get("descricaoweb") or produto.get("descricao", "Produto sem descrição")
-        fatos.append(f"\nProduto: {desc}")
-        item_unidade, item_caixa = None, None
+        fatos.append(f"\n**{desc}**")
         for item in produto.get("itens", []):
-            if item.get("unidade") in ["UN", "L", "KG"]: item_unidade = item
-            if item.get("unidade") in ["CX", "PK", "PC", "FD"]: item_caixa = item
-        if item_unidade and item_unidade.get("pvenda") is not None:
-            preco_un = item_unidade.get("poferta") or item_unidade.get("pvenda")
-            fatos.append(f"- Unidade custa R${preco_un:.2f}")
-            if item_unidade.get("poferta") and item_unidade.get("pvenda") and item_unidade.get("poferta") < item_unidade.get("pvenda"):
-                fatos.append("  - [PROMOÇÃO] Este item está em oferta!")
-        if item_caixa and item_caixa.get("pvenda") is not None and item_caixa.get("qtunit", 0) > 0:
-            preco_cx = item_caixa.get("poferta") or item_caixa.get("pvenda")
-            preco_un_na_caixa = preco_cx / item_caixa["qtunit"]
-            fatos.append(f"- Caixa com {item_caixa['qtunit']} custa R${preco_cx:.2f} (unidade sai por R${preco_un_na_caixa:.2f})")
-            if item_caixa.get("poferta") and item_caixa.get("pvenda") and item_caixa.get("poferta") < item_caixa.get("pvenda"):
-                fatos.append("  - [PROMOÇÃO] A caixa está em oferta!")
-            if item_unidade and preco_un_na_caixa < (item_unidade.get("poferta") or item_unidade.get("pvenda", float('inf'))):
-                fatos.append("  - [MELHOR CUSTO-BENEFÍCIO] Levar a caixa é mais barato por unidade!")
+            if item.get("pvenda") is not None:
+                preco = item.get("poferta") or item.get("pvenda")
+                # Monta a linha para cada item, agora incluindo o ID
+                linha_item = f"- Item `{item['id']}`: {item['unidade']} com {item['qtunit']} und. - **R$ {preco:.2f}**"
+                
+                # Adiciona uma tag de promoção se houver
+                if item.get("poferta") and item.get("pvenda") and item.get("poferta") < item.get("pvenda"):
+                    linha_item += " *(OFERTA!)*"
+                fatos.append(linha_item)
+                
     return "\n".join(fatos)
 
 async def formatar_resposta_carrinho(dados_carrinho: dict) -> str:
@@ -202,15 +253,26 @@ async def executar_ferramenta(tool_call: ToolCall, mensagem: MensagemChat, corre
             url_busca = f"{settings.API_NEGOCIO_URL}/produtos/busca"
             
             # PR#4: Bloco de validação e limpeza dos parâmetros do LLM
-            query = tool_call.parameters.get("query", "").strip()
+            # --- ETAPA 1: CORREÇÃO DA QUERY COM IA ---
+            prompt_correcao_template = await _get_prompt_template("prompt_corrigir_busca")
+            json_corrigido = await _chamar_llm_para_json(mensagem.texto, prompt_correcao_template)
+            query_corrigida = json_corrigido.get("query_corrigida", "").strip()
+
+            # Usa a query original se a correção falhar ou vier vazia.
+            query_final_para_api = query_corrigida if query_corrigida else tool_call.parameters.get("query", "").strip()
+
+            print(f"INFO: correlation_id={correlation_id} id_sessao={sessao_id} query_original='{tool_call.parameters.get('query')}' query_corrigida='{query_final_para_api}'")
+
+            # A extração de "ordenar_por" continua a mesma, baseada no prompt_mestre original.
+             
             ordenar_por = tool_call.parameters.get("ordenar_por")
 
-            if not query:
+            if not query_final_para_api:
                 print(f"WARN: correlation_id={correlation_id} id_sessao={sessao_id} erro_validacao='Query do LLM estava vazia. Abortando busca.'")
                 return {"resposta": "Não entendi o que você quer procurar. Pode tentar de novo, por favor?"}
 
             payload = {
-                "query": query,
+                "query": query_final_para_api,
                 "codfilial": 2, 
                 "limit": 10
             }
@@ -239,10 +301,11 @@ async def executar_ferramenta(tool_call: ToolCall, mensagem: MensagemChat, corre
                 _session_cache.pop(sessao_id, None) # Limpa se não precisar de escolha
 
             contexto_fatos = _preparar_contexto_para_ia(dados_api)
-            prompt_template = await _get_prompt_template("prompt_gerar_resposta_busca")
-            prompt_final = prompt_template.format(contexto=contexto_fatos, mensagem_usuario=mensagem.texto)
-            
-            tool_call_resposta = await chamar_ollama(mensagem.texto, prompt_final)
+            # --- CORREÇÃO: Extrai o template do dicionário antes de formatar ---
+            prompt_data_resposta = await _get_prompt_template("prompt_gerar_resposta_busca")
+            prompt_data_resposta["template"] = prompt_data_resposta["template"].format(contexto=contexto_fatos, mensagem_usuario=mensagem.texto)
+  
+            tool_call_resposta = await chamar_ollama(mensagem.texto, prompt_data_resposta) # Passa o objeto completo para o LLM
             
             resposta_final_obj = {"resposta": tool_call_resposta.parameters.get("mensagem")}
             resposta_final_obj["dados_da_busca"] = dados_api.get("resultados", [])

@@ -134,3 +134,8 @@ def admin_criar_alias_produto(produto_id: int, alias: esquemas.ProdutoAliasCreat
     """Cria um novo alias (apelido) para um produto."""
     # Poderíamos adicionar uma verificação aqui para ver se o produto_id existe
     return crud.create_produto_alias(db=db, alias=alias, produto_id=produto_id)
+
+@app.post("/admin/prompts/{prompt_id}/exemplos", response_model=esquemas.PromptExemplo, status_code=201, tags=["Admin"])
+def admin_criar_exemplo_prompt(prompt_id: int, exemplo: esquemas.PromptExemploCreate, db: Session = Depends(get_db)):
+    """Adiciona um novo exemplo de ensino (few-shot) para um prompt."""
+    return crud.create_prompt_exemplo(db=db, prompt_id=prompt_id, exemplo=exemplo)

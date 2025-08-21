@@ -24,8 +24,8 @@ roteamento:
       # 'handler' indica uma função específica no código, não uma ferramenta.
       handler: "extrair_escolha_do_contexto"
 
-  # Regra 3: Rota padrão que usa o LLM para classificar a intenção.
-  - nome: "Triagem de Intenção com IA"
+  # Regra 3: Rota Padrão com IA (Master Prompt)
+  - nome: "Análise de Intenção e Extração de Parâmetros com IA"
     bypass_llm: false
     acao:
       tipo: "triagem_llm"
@@ -34,10 +34,5 @@ roteamento:
       mapeamento_intencao:
         - intencao: "busca_produto"
           acao:
-            tipo: "extracao_parametros_llm"
-            prompt: "prompt_mestre"
-        - intencao: ["saudacao", "conversa_fiada"]
-          acao:
-            tool_name: "emitir_resposta"
-            parametros:
-              mensagem: "Olá! Sou G.A.V., seu assistente de vendas. Como posso te ajudar a encontrar produtos hoje?"
+      tipo: "extracao_parametros_llm"
+      prompt: "prompt_mestre"
