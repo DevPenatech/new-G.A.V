@@ -1,12 +1,14 @@
 # /gav-orquestrador/app/servicos.py
 
 import uuid
+from . import core_ia
 import httpx
 import json
 import re
 from .config import settings
 from .esquemas import ToolCall, MensagemChat, Feedback
 from fastapi import HTTPException
+
 
 _session_cache = {}
 _prompt_cache = {}
@@ -112,8 +114,7 @@ def _extrair_escolha_do_contexto(texto_usuario: str, contexto_busca: list, alias
                     return ToolCall(tool_name="adicionar_item_carrinho", parameters={"item_id": item['id'], "quantidade": quantidade})
     
     print("Não foi possível extrair a escolha do usuário. Tratando como nova busca.")
-    # BUG 2 - CORRIGIDO: Retorna uma ferramenta para fazer uma nova busca
-    return ToolCall(tool_name="buscar_produtos", parameters={"query": texto_usuario})
+    return None
 
 
 
@@ -164,35 +165,11 @@ async def orquestrar_chat(mensagem: MensagemChat):
     sessao_id = mensagem.sessao_id
     correlation_id = uuid.uuid4()
     print(f"INFO: correlation_id={correlation_id} id_sessao={sessao_id} status=iniciado mensagem='{mensagem.texto}'")
-    tool_call_a_executar: ToolCall
-
-    # TRANSITÓRIO: PR#1 - Curto-circuito para visualização de carrinho
-    padrao_carrinho = re.compile(r'\b(carrinh[oa]s?|ver carrinho|meu carrinho|mostrar carrinho|exibir carrinho)\b', re.IGNORECASE)
-    if padrao_carrinho.search(mensagem.texto):
-        tool_call_a_executar = ToolCall(tool_name="ver_carrinho", parameters={})
-    elif sessao_id in _session_cache and _session_cache[sessao_id].get('state') == 'aguardando_escolha_item':
-        print(f"INFO: correlation_id={correlation_id} id_sessao={sessao_id} rota_escolhida=extrair_escolha_do_contexto fonte=memoria_de_sessao")
-        aliases = await _get_unit_aliases()
-        contexto_salvo = _session_cache[sessao_id]['data']
-        tool_call_a_executar = _extrair_escolha_do_contexto(mensagem.texto, contexto_salvo, aliases)
-    else:
-         # Classificação da intenção via LLM
-        prompt_triagem = await _get_prompt_template("prompt_triagem_intencao")
-        classificacao_json = await _chamar_llm_para_json(mensagem.texto, prompt_triagem)
-        categoria = classificacao_json.get("categoria", "conversa_fiada")
-        print(f"INFO: correlation_id={correlation_id} id_sessao={sessao_id} intencao_classificada={categoria}")
-
-        if categoria == "busca_produto":
-            print(f"INFO: correlation_id={correlation_id} id_sessao={sessao_id} rota_escolhida=chamar_llm_para_ferramenta fonte=prompt_mestre")
-            prompt_mestre = await _get_prompt_template("prompt_mestre")
-            tool_call_a_executar = await chamar_ollama(mensagem.texto, prompt_mestre)
-            print(f"INFO: correlation_id={correlation_id} id_sessao={sessao_id} llm_tool_name={tool_call_a_executar.tool_name}")
-        elif categoria in ["saudacao", "conversa_fiada"]:
-            tool_call_a_executar = ToolCall(tool_name="handle_chitchat", parameters={"mensagem": "Olá! Sou G.A.V., seu assistente de vendas. Como posso te ajudar a encontrar produtos hoje?"})
-        else:
-            # Fallback para qualquer outra categoria não tratada
-            tool_call_a_executar = ToolCall(tool_name="handle_chitchat", parameters={"mensagem": "Desculpe, não entendi. Você pode tentar perguntar sobre um produto?"})
-        
+    
+    # ETAPA 1: O cérebro agora é o core_ia, que lê o manifesto
+    tool_call_a_executar = await core_ia.rotear_e_decidir_acao(mensagem, correlation_id)
+    print(f"INFO: correlation_id={correlation_id} id_sessao={sessao_id} llm_tool_name={tool_call_a_executar.tool_name}")
+ 
     # ETAPA 2: EXECUÇÃO DA FERRAMENTA E RESPOSTA
    
     async with httpx.AsyncClient() as client:
