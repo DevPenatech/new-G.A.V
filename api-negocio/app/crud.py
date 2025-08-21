@@ -58,11 +58,18 @@ def buscar_produtos(db: Session, query: str, codfilial: int, ordenar_por: str = 
     """
     query_para_fts, filtros = _extrair_atributos_da_query(db, query)
     
-    # --- ETAPA 1: BUSCA ESTRITA ---
+    # --- ETAPA 1: BUSCA ESTRITA (FTS) ---
     print("Executando busca estrita...")
-    resultados = _executar_busca(db, query_para_fts, filtros, codfilial, ordenar_por, limit, estrita=True)
+    resultados = _executar_busca(db, query_para_fts, filtros, codfilial, ordenar_por, limit, estrita=True, usar_trigrama=False)
 
-    # --- ETAPA 2: LÓGICA DE FALLBACK ---
+
+    # --- ETAPA 2: BUSCA POR SIMILARIDADE (TRIGRAM) ---
+    if not resultados and not filtros: # Apenas tenta trigram se não houver filtros e a busca FTS falhar
+        print("Busca FTS não encontrou resultados. Tentando busca por similaridade (Trigram)...")
+        resultados = _executar_busca(db, query, filtros, codfilial, "relevancia", limit, estrita=False, usar_trigrama=True)
+        return {"resultados": resultados, "status_busca": "sucesso"}
+
+    # --- ETAPA 3: LÓGICA DE FALLBACK DE UNIDADE ---
     if not resultados and 'unidades' in filtros:
         print("Busca estrita falhou. Tentando fallback sem filtro de unidade...")
         filtros_fallback = filtros.copy()
@@ -76,7 +83,7 @@ def buscar_produtos(db: Session, query: str, codfilial: int, ordenar_por: str = 
     return {"resultados": resultados, "status_busca": "sucesso"}
 
 
-def _executar_busca(db: Session, query_para_fts: str, filtros: dict, codfilial: int, ordenar_por: str, limit: int, estrita: bool):
+def _executar_busca(db: Session, query_para_fts: str, filtros: dict, codfilial: int, ordenar_por: str, limit: int, estrita: bool, usar_trigrama: bool = False):
     """Função auxiliar que executa a lógica de busca no banco de dados."""
     query_fts_formatada = " & ".join(query_para_fts.split()) if query_para_fts else None
 
@@ -90,20 +97,31 @@ def _executar_busca(db: Session, query_para_fts: str, filtros: dict, codfilial: 
     if ordenar_por in ["preco_asc", "preco_desc"]:
         join_clauses.append("LEFT JOIN produto_precos pp ON pi.id = pp.item_id AND pp.codfilial = :codfilial")
         # ... (lógica de ordenação por preço)
-    if not order_by_clause:
-        if query_fts_formatada: order_by_clause = "ORDER BY rank DESC"
-        else: order_by_clause = "ORDER BY p.id"
-    if query_fts_formatada:
+
+    if usar_trigrama:
+        select_clause = "p.*"
+        campo_busca_trigrama = "COALESCE(public.unaccent_immutable(p.descricaoweb), public.unaccent_immutable(p.descricao))"
+        # Adiciona a condição de similaridade e ordena por ela
+        where_clauses.append("similarity(public.unaccent_immutable(p.descricao), :query_trg) > 0.2")
+        params['query_trg'] = query_para_fts # Usa a query original
+        order_by_clause = f"ORDER BY similarity({campo_busca_trigrama}, :query_trg) DESC"
+    elif query_fts_formatada:
         select_clause = "p.*, MAX(ts_rank(produtos_fts_document(p.descricaoweb, p.descricao, p.marca, p.categoria, p.departamento), to_tsquery('portuguese', :query_fts))) as rank"
         where_clauses.append("produtos_fts_document(p.descricaoweb, p.descricao, p.marca, p.categoria, p.departamento) @@ to_tsquery('portuguese', :query_fts)")
         params['query_fts'] = query_fts_formatada
+        if not order_by_clause:
+            order_by_clause = "ORDER BY rank DESC"
     else: select_clause = "p.*"
+    
     if 'volume' in filtros:
         where_clauses.append("(p.descricao ILIKE :volume OR p.descricaoweb ILIKE :volume)")
         params['volume'] = filtros['volume']
     if 'unidades' in filtros:
         where_clauses.append("pi.unidade = ANY(:unidades)")
         params['unidades'] = filtros['unidades']
+
+    if not order_by_clause:
+        order_by_clause = "ORDER BY p.id"
 
     if not where_clauses: return []
 
@@ -275,3 +293,52 @@ def get_all_unidade_aliases(db: Session) -> list:
     """Busca todos os aliases de unidade ativos."""
     stmt = text("SELECT alias, unidade_principal FROM unidade_aliases WHERE ativo = TRUE")
     return db.execute(stmt).fetchall()
+
+# --- Funções CRUD para Aliases de Produtos ---
+
+def get_produto_aliases(db: Session, produto_id: int):
+    """Lista todos os aliases de um produto específico."""
+    stmt = text("SELECT * FROM produto_aliases WHERE produto_id = :produto_id AND ativo = TRUE")
+    return db.execute(stmt, {"produto_id": produto_id}).fetchall()
+
+def create_produto_alias(db: Session, alias: esquemas.ProdutoAliasCreate, produto_id: int):
+    """Cria um novo alias para um produto."""
+    stmt = text("""
+        INSERT INTO produto_aliases (produto_id, alias, origem)
+        VALUES (:produto_id, :alias, :origem)
+        RETURNING *;
+    """)
+    params = alias.model_dump()
+    params["produto_id"] = produto_id
+    result = db.execute(stmt, params)
+    db.commit()
+    return result.first()._mapping
+# --- Funções CRUD para o Admin de Prompts ---
+
+def get_prompt(db: Session, prompt_id: int):
+    """Busca um prompt específico pelo seu ID."""
+    stmt = text("SELECT * FROM prompt_templates WHERE id = :prompt_id")
+    return db.execute(stmt, {"prompt_id": prompt_id}).first()
+
+def get_all_prompts(db: Session, skip: int = 0, limit: int = 100):
+    """Lista todos os prompts com paginação."""
+    stmt = text("SELECT * FROM prompt_templates ORDER BY id OFFSET :skip LIMIT :limit")
+    return db.execute(stmt, {"skip": skip, "limit": limit}).fetchall()
+
+def create_prompt(db: Session, prompt: esquemas.PromptCreate) -> dict:
+    """Cria um novo template de prompt no banco."""
+    stmt = text("""
+        INSERT INTO prompt_templates (nome, template, versao, ativo)
+        VALUES (:nome, :template, :versao, :ativo)
+        RETURNING *;
+    """)
+    result = db.execute(stmt, prompt.model_dump())
+    db.commit()
+    return result.first()._mapping
+
+def update_prompt_status(db: Session, prompt_id: int, ativo: bool) -> dict:
+    """Atualiza o status (ativo/inativo) de um prompt."""
+    stmt = text("UPDATE prompt_templates SET ativo = :ativo, atualizado_em = NOW() WHERE id = :id RETURNING *;")
+    result = db.execute(stmt, {"id": prompt_id, "ativo": ativo})
+    db.commit()
+    return result.first()._mapping

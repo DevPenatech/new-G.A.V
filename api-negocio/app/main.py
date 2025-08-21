@@ -1,6 +1,7 @@
 # api-negocio/app/main.py
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException, Body
+from typing import List
 from sqlalchemy.orm import Session
 
 from . import database, crud, esquemas
@@ -97,3 +98,39 @@ def endpoint_get_unidade_aliases(db: Session = Depends(get_db)):
     aliases = crud.get_all_unidade_aliases(db)
     # Converte a lista de tuplas em um dicionário para fácil consumo
     return {row.alias: row.unidade_principal for row in aliases}
+
+
+# --- Endpoints de ADMIN ---
+
+@app.get("/admin/prompts", response_model=List[esquemas.Prompt], tags=["Admin"])
+def admin_listar_prompts(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    """Lista todos os templates de prompt no sistema."""
+    prompts = crud.get_all_prompts(db, skip=skip, limit=limit)
+    return prompts
+
+@app.post("/admin/prompts", response_model=esquemas.Prompt, status_code=201, tags=["Admin"])
+def admin_criar_prompt(prompt: esquemas.PromptCreate, db: Session = Depends(get_db)):
+    """Cria um novo template de prompt."""
+    return crud.create_prompt(db=db, prompt=prompt)
+
+@app.patch("/admin/prompts/{prompt_id}/status", response_model=esquemas.Prompt, tags=["Admin"])
+def admin_atualizar_status_prompt(prompt_id: int, update_data: esquemas.PromptUpdate, db: Session = Depends(get_db)):
+    """
+    Atualiza o status de um prompt (ativo/inativo).
+    """
+    db_prompt = crud.get_prompt(db, prompt_id=prompt_id)
+    if db_prompt is None:
+        raise HTTPException(status_code=404, detail="Prompt não encontrado.")
+    return crud.update_prompt_status(db=db, prompt_id=prompt_id, ativo=update_data.ativo)
+
+
+@app.get("/admin/produtos/{produto_id}/aliases", response_model=List[esquemas.ProdutoAlias], tags=["Admin"])
+def admin_listar_aliases_produto(produto_id: int, db: Session = Depends(get_db)):
+    """Lista todos os aliases de um produto específico."""
+    return crud.get_produto_aliases(db, produto_id=produto_id)
+
+@app.post("/admin/produtos/{produto_id}/aliases", response_model=esquemas.ProdutoAlias, status_code=201, tags=["Admin"])
+def admin_criar_alias_produto(produto_id: int, alias: esquemas.ProdutoAliasCreate, db: Session = Depends(get_db)):
+    """Cria um novo alias (apelido) para um produto."""
+    # Poderíamos adicionar uma verificação aqui para ver se o produto_id existe
+    return crud.create_produto_alias(db=db, alias=alias, produto_id=produto_id)

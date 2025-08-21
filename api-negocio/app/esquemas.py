@@ -1,5 +1,6 @@
 # api-negocio/app/esquemas.py
 
+from datetime import datetime
 from pydantic import BaseModel, Field 
 from typing import Dict, Any, Optional, List, Literal 
 
@@ -79,6 +80,38 @@ class Carrinho(BaseModel):
     status: str
     itens: List[ItemCarrinho]
     valor_total: float
+
+    class Config:
+        from_attributes = True
+
+# --- Esquemas do Admin ---
+
+class PromptCreate(BaseModel):
+    nome: str
+    template: str
+    versao: int = 1
+    ativo: bool = True
+
+class PromptUpdate(BaseModel):
+    ativo: bool
+
+class Prompt(PromptCreate):
+    id: int
+    criado_em: datetime
+    atualizado_em: datetime
+
+    class Config:
+        from_attributes = True
+        
+
+class ProdutoAliasCreate(BaseModel):
+    alias: str
+    origem: str = "manual"
+
+class ProdutoAlias(ProdutoAliasCreate):
+    id: int
+    produto_id: int
+    ativo: bool
 
     class Config:
         from_attributes = True
