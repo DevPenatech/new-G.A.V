@@ -4,6 +4,8 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from . import esquemas
+import re      # ✅ ADICIONAR ESTA LINHA
+import json    # ✅ ADICIONAR ESTA LINHA (usada em criar_log_interacao)
 
 # ---------------------------------------------
 # CRUD de Prompts e Unidades (SQL "cru", sem ORM)
