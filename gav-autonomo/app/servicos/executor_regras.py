@@ -1,6 +1,6 @@
 # gav-autonomo/app/servicos/executor_regras.py
-# FASE 4: Orquestrador 100% genérico via prompt
-# Elimina todas as regras hardcoded, tudo vira configuração via prompt
+# FASE 5A: Pipeline de Apresentação - JSON → Conversa Natural
+# Mantém arquitetura 100% prompt, adiciona segunda etapa de apresentação
 
 from app.adaptadores.cliente_negocio import obter_prompt_por_nome, listar_exemplos_prompt
 from app.adaptadores.interface_llm import completar_para_json
@@ -14,10 +14,10 @@ API_NEGOCIO_URL = config.API_NEGOCIO_URL.rstrip("/")
 
 def executar_regras_do_manifesto(mensagem: dict | str) -> dict:
     """
-    Orquestrador genérico que só executa chamadas HTTP baseadas em decisões do LLM.
-    Zero regras hardcoded - tudo configurado via prompt.
+    Orquestrador com pipeline de 2 etapas:
+    1) LLM Selector → decide API call
+    2) LLM Apresentador → JSON → conversa (se api_call_with_presentation)
     """
-    # Guard: se alguém chamar passando string, não quebrar
     if isinstance(mensagem, str):
         mensagem = {"texto": mensagem, "sessao_id": "anon"}
     
@@ -31,9 +31,9 @@ def executar_regras_do_manifesto(mensagem: dict | str) -> dict:
     return {"erro": "Nenhuma regra válida encontrada no manifesto."}
 
 def _processar_decisao_llm(mensagem: dict, regra: dict, manifesto: dict) -> dict:
-    """Processa uma decisão via LLM e executa a chamada HTTP resultante."""
+    """Processa decisão via LLM e executa pipeline apropriado."""
     try:
-        # 1. Busca prompt e exemplos
+        # 1. Busca prompt e exemplos do Selector
         p = obter_prompt_por_nome(
             nome=regra["prompt"], 
             espaco=regra["espaco_prompt"], 
@@ -41,7 +41,7 @@ def _processar_decisao_llm(mensagem: dict, regra: dict, manifesto: dict) -> dict
         )
         exemplos = listar_exemplos_prompt(p["id"])
 
-        # 2. Pede decisão ao LLM
+        # 2. LLM Selector decide ferramenta
         decisao = completar_para_json(
             sistema=p["template"],
             entrada_usuario=mensagem["texto"],
@@ -54,24 +54,128 @@ def _processar_decisao_llm(mensagem: dict, regra: dict, manifesto: dict) -> dict
         if not validar_json_contra_schema(decisao, schema):
             return {"erro": "Decisão do LLM inválida. Tente reformular a mensagem."}
 
-        # 4. Executa a ferramenta genérica
-        if decisao.get("tool_name") == "api_call":
+        # 4. Pipeline de execução
+        tool_name = decisao.get("tool_name")
+        
+        if tool_name == "api_call":
+            # Pipeline simples: API → retorna JSON direto
             return _executar_api_call(decisao.get("parameters", {}), mensagem["sessao_id"])
+            
+        elif tool_name == "api_call_with_presentation":
+            # Pipeline duplo: API → LLM Apresentador → conversa
+            json_resultado = _executar_api_call(decisao.get("parameters", {}), mensagem["sessao_id"])
+            return _apresentar_resultado(json_resultado, mensagem["texto"], decisao.get("parameters", {}))
+            
         else:
-            return {"erro": f"Ferramenta não reconhecida: {decisao.get('tool_name')}"}
+            return {"erro": f"Ferramenta não reconhecida: {tool_name}"}
             
     except Exception as e:
         return {"erro": f"Erro interno: {str(e)}"}
 
+def _apresentar_resultado(json_resultado: dict, mensagem_original: str, params_api: dict) -> dict:
+    """
+    NOVA FUNÇÃO: Segunda etapa do pipeline
+    Transforma JSON da API em conversa natural via LLM Apresentador
+    """
+    try:
+        # Determina tipo de apresentação baseado no endpoint
+        endpoint = params_api.get("endpoint", "")
+        prompt_apresentador = _determinar_prompt_apresentador(endpoint, json_resultado)
+        
+        if not prompt_apresentador:
+            # Fallback: se não conseguir apresentar, retorna JSON original
+            return json_resultado
+        
+        # Busca prompt e exemplos do Apresentador
+        p_apresentador = obter_prompt_por_nome(nome=prompt_apresentador, espaco="autonomo", versao=1)
+        exemplos_apresentador = listar_exemplos_prompt(p_apresentador["id"])
+        
+        # Monta contexto para o LLM Apresentador
+        contexto_apresentacao = _montar_contexto_apresentacao(
+            mensagem_original, json_resultado, endpoint
+        )
+        
+        # LLM Apresentador: JSON → conversa
+        resposta_conversacional = completar_para_json(
+            sistema=p_apresentador["template"],
+            entrada_usuario=contexto_apresentacao,
+            exemplos=exemplos_apresentador
+        )
+        
+        # Retorna mensagem conversacional
+        return {
+            "mensagem": resposta_conversacional.get("mensagem", "Ops, não consegui processar isso..."),
+            "tipo": resposta_conversacional.get("tipo", "apresentacao"),
+            "dados_originais": json_resultado  # Para debugging
+        }
+        
+    except Exception as e:
+        # Fallback em caso de erro: retorna JSON original
+        print(f"Erro na apresentação: {e}")
+        return json_resultado
+
+def _determinar_prompt_apresentador(endpoint: str, json_resultado: dict) -> str:
+    """Determina qual prompt de apresentação usar baseado no endpoint e resultado."""
+    
+    # Detecta erro
+    if "erro" in json_resultado or json_resultado.get("success") is False:
+        return "prompt_apresentador_erro"
+    
+    # Endpoints de busca
+    if "/produtos/busca" in endpoint:
+        return "prompt_apresentador_busca"
+    
+    # Endpoints de carrinho
+    if "/carrinhos/" in endpoint:
+        return "prompt_apresentador_carrinho"
+    
+    # Conversa pura
+    if "/chat/resposta" in endpoint:
+        # Já é conversa, não precisa apresentar
+        return None
+    
+    # Default para casos novos
+    return "prompt_apresentador_busca"
+
+def _montar_contexto_apresentacao(mensagem_original: str, json_resultado: dict, endpoint: str) -> str:
+    """Monta o contexto que será enviado para o LLM Apresentador."""
+    
+    if "/produtos/busca" in endpoint:
+        # Contexto para apresentação de busca
+        resultados = json_resultado.get("resultados", [])
+        status_busca = json_resultado.get("status_busca", "sucesso")
+        
+        return f"""query_original: "{mensagem_original}"
+resultados_json: {json.dumps(json_resultado, ensure_ascii=False)}
+status_busca: "{status_busca}"
+total_encontrados: {len(resultados)}"""
+
+    elif "/carrinhos/" in endpoint:
+        # Contexto para apresentação de carrinho
+        if endpoint.endswith("/itens"):
+            acao = "item_adicionado"
+        else:
+            acao = "carrinho_visualizado" if json_resultado.get("itens") else "carrinho_vazio"
+            
+        return f"""acao_realizada: "{acao}"
+carrinho_json: {json.dumps(json_resultado, ensure_ascii=False)}
+mensagem_original: "{mensagem_original}" """
+
+    else:
+        # Contexto genérico
+        return f"""contexto_usuario: "{mensagem_original}"
+resultado_api: {json.dumps(json_resultado, ensure_ascii=False)}
+endpoint: "{endpoint}" """
+
 def _executar_api_call(params: dict, sessao_id: str) -> dict:
     """
-    Executa uma chamada HTTP genérica baseada nos parâmetros do LLM.
-    Implementa ciclo de reparo automático em caso de erro 4xx/422.
+    Executa uma chamada HTTP genérica (mantém lógica original da Fase 4).
     """
     endpoint = params.get("endpoint", "")
     method = params.get("method", "GET").upper()
     body = params.get("body", {})
     
+    # Endpoint especial para conversa direta
     if endpoint == "/chat/resposta":
         mensagem = body.get("mensagem", "Olá! Como posso ajudá-lo?")
         return {"mensagem": mensagem, "tipo": "conversacional"}
@@ -141,6 +245,7 @@ def _fazer_request_http(url: str, method: str, body: dict) -> dict:
 def _tentar_reparo_automatico(params_originais: dict, erro_response: dict, sessao_id: str) -> dict:
     """
     Ciclo de reparo automático: envia erro para LLM e tenta novamente com payload corrigido.
+    (Mantém lógica original da Fase 4)
     """
     try:
         # Busca o prompt de reparo
@@ -171,10 +276,3 @@ mensagem_usuario: (contexto da mensagem original)"""
     except Exception as e:
         # Se o reparo falhar, retorna o erro original
         return {"erro": f"Reparo automático falhou: {str(e)}. Erro original: {erro_response.get('error')}"}
-
-def _handle_resposta_conversacional(mensagem: str) -> dict:
-    """
-    Lida com respostas conversacionais que não são chamadas de API.
-    Endpoint especial /chat/resposta que não existe na API real.
-    """
-    return {"mensagem": mensagem, "tipo": "conversacional"}

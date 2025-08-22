@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Decisão API Call Híbrida",
+  "title": "Decisão API Call Genérica",
   "type": "object",
   "required": ["tool_name", "parameters"],
   "additionalProperties": false,
   "properties": {
     "tool_name": {
       "type": "string",
-      "enum": ["api_call", "api_call_with_presentation"]
+      "enum": ["api_call"]
     },
     "parameters": {
       "type": "object",

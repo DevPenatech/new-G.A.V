@@ -12,7 +12,7 @@ regras:
   - id: roteamento_generico
     action: decisao_llm
     prompt: prompt_api_call_selector  # <- NOVO PROMPT
-    versao_prompt: 3
+    versao_prompt: 4
     espaco_prompt: autonomo
     schema: api_call_decision.json    # <- NOVO SCHEMA
 
