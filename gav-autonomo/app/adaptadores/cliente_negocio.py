@@ -1,33 +1,36 @@
-import httpx
 from app.config.settings import config
-API_NEGOCIO_URL = config.API_NEGOCIO_URL
+import httpx
+from typing import Optional, Dict, Any
 
-def obter_prompt_por_nome(nome: str, espaco: str = "autonomo", versao: int = 2) -> dict:
-    url = f"{API_NEGOCIO_URL}/admin/prompts/buscar"
-    r = httpx.get(url, params={"nome": nome, "espaco": espaco, "versao": versao}, timeout=10.0)
-    r.raise_for_status()
-    return r.json()
+API_NEGOCIO_URL = config.API_NEGOCIO_URL.rstrip("/")
 
-def listar_exemplos_prompt(prompt_id: int) -> list[dict]:
-    url = f"{API_NEGOCIO_URL}/admin/prompts/{prompt_id}/exemplos/ativos"
-    r = httpx.get(url, timeout=10.0)
-    r.raise_for_status()
-    return r.json()
+def chamar_api(endpoint: str, method: str = "POST",
+               payload: Optional[Dict[str, Any]] = None,
+               headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """
+    Chamador genérico de APIs da api-negocio.
+    endpoint: caminho (ex.: '/produtos/busca' ou 'carrinhos/{sessao_id}')
+    method:   GET|POST|PUT|PATCH|DELETE
+    payload:  params (GET) ou JSON (demais)
+    """
+    if not endpoint.startswith("/"):
+        endpoint = "/" + endpoint
+    url = f"{API_NEGOCIO_URL}{endpoint}"
+    method = method.upper()
+    try:
+        if method == "GET":
+            resp = httpx.get(url, params=payload or {}, headers=headers, timeout=30)
+        else:
+            resp = httpx.request(method, url, json=payload or {}, headers=headers, timeout=30)
+        if resp.status_code >= 400:
+            return {"erro": "api_call_failed", "status_code": resp.status_code,
+                    "endpoint": endpoint, "body": _safe_text(resp)}
+        return resp.json()
+    except httpx.RequestError as e:
+        return {"erro": "api_unreachable", "detalhe": str(e), "endpoint": endpoint}
 
-def buscar_produtos(query: str, ordenar_por: str | None = None) -> dict:
-    url = f"{API_NEGOCIO_URL}/produtos/busca"
-    r = httpx.post(url, json={"query": query, "ordenar_por": ordenar_por}, timeout=15.0)
-    r.raise_for_status()
-    return r.json()
-
-def adicionar_ao_carrinho(sessao_id: str, **payload) -> dict:
-    url = f"{API_NEGOCIO_URL}/carrinhos/{sessao_id}/itens"
-    r = httpx.post(url, json=payload, timeout=10.0)
-    r.raise_for_status()
-    return r.json()
-
-def ver_carrinho(sessao_id: str) -> dict:
-    url = f"{API_NEGOCIO_URL}/carrinhos/{sessao_id}"
-    r = httpx.get(url, timeout=10.0)
-    r.raise_for_status()
-    return r.json()
+def _safe_text(response: httpx.Response) -> str:
+    try:
+        return response.text[:2000]
+    except Exception:
+        return "<sem corpo>"

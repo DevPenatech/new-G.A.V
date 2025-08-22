@@ -3,6 +3,7 @@ from app.adaptadores.cliente_negocio import (
     obter_prompt_por_nome, listar_exemplos_prompt,
     buscar_produtos, adicionar_ao_carrinho, ver_carrinho
 )
+from app.adaptadores.cliente_negocio import obter_prompt_do_banco, chamar_api
 from app.adaptadores.interface_llm import completar_para_json
 from app.validadores.modelos import validar_json_contra_schema, carregar_schema
 import yaml
