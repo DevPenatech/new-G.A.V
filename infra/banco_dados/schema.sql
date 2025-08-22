@@ -126,13 +126,15 @@ COMMENT ON TABLE interacao_log IS 'Registra todas as interações e feedbacks pa
 
 CREATE TABLE prompt_templates (
     id SERIAL PRIMARY KEY,
-    nome VARCHAR(100) UNIQUE NOT NULL, -- um nome único para identificar o prompt, ex: 'mestre', 'fallback_busca'
+    nome VARCHAR(100) NOT NULL, -- um nome único para identificar o prompt, ex: 'mestre', 'fallback_busca'
     template TEXT NOT NULL, -- O texto do prompt em si
-    versao INTEGER DEFAULT 1,
+    versao TEXT DEFAULT 'v1',
+    espaco TEXT NOT NULL DEFAULT 'legacy',
     ativo BOOLEAN DEFAULT TRUE,
     criado_em TIMESTAMPTZ DEFAULT NOW(),
     atualizado_em TIMESTAMPTZ DEFAULT NOW()
 );
+ADD CONSTRAINT unica_por_espaco UNIQUE (espaco, nome, versao);
 COMMENT ON TABLE prompt_templates IS 'Central de templates de prompt para o LLM.';
 
 -- === GERENCIAMENTO DE IA (ADICIONAR NO FINAL DA SEÇÃO) ===

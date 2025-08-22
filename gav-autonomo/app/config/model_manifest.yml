@@ -1,0 +1,13 @@
+versao: 1
+defaults:
+  modelo: "llama-3.1-70b"
+  temperatura: 0.2
+  max_tokens: 800
+
+regras:
+  - id: roteamento_llm
+    action: decisao_llm
+    prompt: prompt_tool_selector
+    versao_prompt: 2
+    espaco_prompt: autonomo
+    schema: validadores/esquemas/decisao_llm.json

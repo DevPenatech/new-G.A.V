@@ -139,3 +139,13 @@ def admin_criar_alias_produto(produto_id: int, alias: esquemas.ProdutoAliasCreat
 def admin_criar_exemplo_prompt(prompt_id: int, exemplo: esquemas.PromptExemploCreate, db: Session = Depends(get_db)):
     """Adiciona um novo exemplo de ensino (few-shot) para um prompt."""
     return crud.create_prompt_exemplo(db=db, prompt_id=prompt_id, exemplo=exemplo)
+
+@app.get("/admin/prompts/prompt_tool_selector", tags=["Admin"])
+def admin_prompt_tool_selector(espaco: str, versao: int, db: Session = Depends(get_db)):
+    """
+    Retorna o prompt ativo usado para seleção de ferramenta, filtrando por espaço e versão.
+    """
+    prompt = crud.get_prompt_tool_selector(db, espaco=espaco, versao=versao)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt não encontrado.")
+    return prompt

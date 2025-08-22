@@ -41,16 +41,16 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 
   # --- SERVIÇO DO ORQUESTRADOR DE IA ---
-  gav_orquestrador:
-    container_name: gav_orquestrador
-    build: ./gav-orquestrador
+  gav_autonomo:
+    container_name: gav_autonomo
+    build: ./gav-autonomo
     depends_on:
       - api_negocio
     env_file: .env
     ports:
       - "8000:8000"
     volumes:
-      - ./gav-orquestrador:/app
+      - ./gav-autonomo:/app
     restart: unless-stopped
     # ADICIONE A LINHA ABAIXO:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -68,7 +68,7 @@ services:
       - ./chatweb/src:/app/src
       - /app/node_modules
     depends_on:
-      - gav_orquestrador
+      - gav_autonomo
 
 volumes:
   postgres_data:

@@ -360,3 +360,16 @@ def create_prompt_exemplo(db: Session, prompt_id: int, exemplo: esquemas.PromptE
     result = db.execute(stmt, {"prompt_id": prompt_id, **exemplo.model_dump()})
     db.commit()
     return result.first()._mapping
+
+def get_prompt_tool_selector(db: Session, espaco: str, versao: int):
+    return db.execute(
+        text("""
+            SELECT * FROM prompt_templates
+            WHERE nome = 'tool_selector'
+            AND espaco = :espaco
+            AND versao = :versao
+            AND ativo = true
+            LIMIT 1
+        """),
+        {"espaco": espaco, "versao": versao}
+    ).mappings().first()

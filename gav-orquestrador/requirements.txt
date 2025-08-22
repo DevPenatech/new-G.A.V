@@ -1,7 +1,0 @@
- # gav-orquestrador/requirements.txt
- fastapi
- uvicorn[standard]
- httpx
- pydantic-settings
- PyYAML
-  # sqlalchemy e psycopg2-binary foram removidos
