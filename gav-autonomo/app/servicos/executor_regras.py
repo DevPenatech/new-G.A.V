@@ -72,6 +72,10 @@ def _executar_api_call(params: dict, sessao_id: str) -> dict:
     method = params.get("method", "GET").upper()
     body = params.get("body", {})
     
+    if endpoint == "/chat/resposta":
+        mensagem = body.get("mensagem", "Olá! Como posso ajudá-lo?")
+        return {"mensagem": mensagem, "tipo": "conversacional"}
+    
     # Substitui {sessao_id} no endpoint se necessário
     if "{sessao_id}" in endpoint:
         if not sessao_id or sessao_id == "anon":
