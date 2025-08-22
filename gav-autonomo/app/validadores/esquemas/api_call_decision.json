@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Decisão API Call Genérica",
+  "description": "Schema para validar decisões da ferramenta api_call",
+  "type": "object",
+  "required": ["tool_name", "parameters"],
+  "additionalProperties": false,
+  "properties": {
+    "tool_name": {
+      "type": "string",
+      "enum": ["api_call"]
+    },
+    "parameters": {
+      "type": "object",
+      "required": ["endpoint", "method"],
+      "additionalProperties": true,
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "description": "Endpoint da API de negócio (ex: /produtos/busca)"
+        },
+        "method": {
+          "type": "string",
+          "enum": ["GET", "POST", "PUT", "DELETE"],
+          "description": "Método HTTP"
+        },
+        "body": {
+          "type": "object",
+          "description": "Corpo da requisição (opcional para GET)"
+        },
+        "sessao_id": {
+          "type": "string",
+          "description": "ID da sessão quando necessário"
+        },
+        "headers": {
+          "type": "object",
+          "description": "Headers HTTP adicionais (opcional)"
+        }
+      }
+    }
+  }
+}
