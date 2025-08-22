@@ -40,6 +40,7 @@ services:
     # ADICIONE A LINHA ABAIXO:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 
+
   # --- SERVIÇO DO ORQUESTRADOR DE IA ---
   gav_autonomo:
     container_name: gav_autonomo

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SaidaTool",
+  "type": "object",
+  "required": ["tool_name", "parameters"],
+  "additionalProperties": false,
+  "properties": {
+    "tool_name": {
+      "type": "string",
+      "enum": ["buscar_produtos", "iniciar_adicao_item_carrinho", "adicionar_item_carrinho", "ver_carrinho", "handle_chitchat"]
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

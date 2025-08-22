@@ -2,7 +2,7 @@ import httpx, json
 from app.config.settings import config
 
 OLLAMA_URL = config.OLLAMA_HOST.rstrip("/")
-OLLAMA_MODEL = getattr(config, "OLLAMA_MODEL", "llama3.1:8b")
+OLLAMA_MODEL = config.OLLAMA_MODEL_NAME.rstrip("/")
 
 def _montar_prompt(sistema: str, entrada_usuario: str, exemplos: list[dict]) -> str:
     partes = [sistema.strip()]
@@ -17,7 +17,7 @@ def completar_para_json(sistema: str, entrada_usuario: str, exemplos: list[dict]
     resp = httpx.post(
         f"{OLLAMA_URL}/api/generate",
         json={
-            "model": modelo or OLLAMA_MODEL,
+            "model": OLLAMA_MODEL,
             "prompt": prompt_texto,
             "format": "json",     # força JSON
             "stream": False,

@@ -10,4 +10,4 @@ regras:
     prompt: prompt_tool_selector
     versao_prompt: 2
     espaco_prompt: autonomo
-    schema: validadores/esquemas/decisao_llm.json
+    schema: decisao_llm.json

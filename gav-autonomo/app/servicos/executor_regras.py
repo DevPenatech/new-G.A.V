@@ -8,7 +8,10 @@ from app.validadores.modelos import validar_json_contra_schema, carregar_schema
 import yaml
 import json
 
-def executar_regras_do_manifesto(mensagem: dict) -> dict:
+def executar_regras_do_manifesto(mensagem: dict | str) -> dict:
+    # Guard: se alguém chamar passando string, não quebrar
+    if isinstance(mensagem, str):
+        mensagem = {"texto": mensagem, "sessao_id": "anon"}
     """
     mensagem: {"texto": "...", "sessao_id": "..."}
     """
