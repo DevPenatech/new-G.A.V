@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     API_NEGOCIO_URL: str
     OLLAMA_HOST: str
+    OLLAMA_MODEL: str = "llama3.1:8b"
     
     class Config:
         env_file = ".env"

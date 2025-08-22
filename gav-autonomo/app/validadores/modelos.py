@@ -1,23 +1,27 @@
 from pydantic import BaseModel
-from typing import Literal
+from typing import Dict, Any
+import json, pathlib
 
-class ParametrosBusca(BaseModel):
-    query: str
-    ordenar_por: str | None = None
+class ToolCall(BaseModel):
+    tool_name: str           # nome da ferramenta decidido pelo LLM
+    parameters: Dict[str, Any]  # payload arbitrário, decidido pelo prompt
+# JSON Schema mínimo (só estrutura; nada de enum/listas de campos)
+MANIFEST_SCHEMA_TOOL_SELECTOR = {
+    "type": "object",
+     "properties": {
+         "tool_name": { "type": "string" },
+         "parameters": { "type": "object" }
+     },
+     "required": ["tool_name", "parameters"],
+     "additionalProperties": False
+ }
 
-class ParametrosAdicao(BaseModel):
-    item_id: str
-    quantidade: int
-
-class SaidaTool(BaseModel):
-    tool_name: Literal["buscar_produtos", "adicionar_item_carrinho", "ver_carrinho"]
-    parameters: dict
-
-def validar_json_contra_schema(json_dado, schema):
-    from jsonschema import validate, ValidationError
-
-    try:
-        validate(instance=json_dado, schema=schema)
-        return True
-    except ValidationError as e:
-        return False
+def carregar_schema(schema_ref: Any) -> dict:
+    """Aceita dict pronto OU caminho para JSON (string) e retorna dict."""
+    if isinstance(schema_ref, dict):
+        return schema_ref
+    if isinstance(schema_ref, str):
+        p = pathlib.Path(schema_ref)
+        with p.open(encoding="utf-8") as f:
+            return json.load(f)
+    raise TypeError("schema deve ser dict ou caminho para arquivo .json")

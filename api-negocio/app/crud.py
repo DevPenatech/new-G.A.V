@@ -1,10 +1,74 @@
 # /api-negocio/app/crud.py
-
+from __future__ import annotations
+from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from . import esquemas
-import json
-import re
+
+# ---------------------------------------------
+# CRUD de Prompts e Unidades (SQL "cru", sem ORM)
+# ---------------------------------------------
+
+def get_prompt_ativo_por_nome_espaco_versao(
+    db: Session, *, nome: str, espaco: str = "legacy", versao: str = "v1"
+) -> Optional[Dict[str, Any]]:
+    """
+    Retorna o prompt ativo mais recente que case com (nome, espaco, versao).
+    Tabela: prompt_templates (schema.sql)
+    """
+    row = db.execute(
+        text(
+            """
+            SELECT id, nome, template, versao, espaco, ativo, criado_em, atualizado_em
+            FROM prompt_templates
+            WHERE nome = :nome
+              AND espaco = :espaco
+              AND versao = :versao
+              AND ativo = TRUE
+            ORDER BY atualizado_em DESC NULLS LAST, id DESC
+            LIMIT 1
+            """
+        ),
+        {"nome": nome, "espaco": espaco, "versao": versao},
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+def get_prompt_exemplos_ativos(db: Session, *, prompt_id: int) -> List[Dict[str, Any]]:
+    """
+    Retorna exemplos ativos (few-shot) de um prompt.
+    Tabela: prompt_exemplos (schema.sql)
+    """
+    rows = db.execute(
+        text(
+            """
+            SELECT id, prompt_id, exemplo_input, exemplo_output_json, ativo, criado_em
+            FROM prompt_exemplos
+            WHERE prompt_id = :pid
+              AND ativo = TRUE
+            ORDER BY id ASC
+            """
+        ),
+        {"pid": prompt_id},
+    ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def get_all_unidade_aliases(db: Session) -> List[Dict[str, Any]]:
+    """
+    Dicionário de sinônimos de unidades (tabela unidade_aliases).
+    """
+    rows = db.execute(
+        text(
+            """
+            SELECT alias, unidade_principal
+            FROM unidade_aliases
+            WHERE ativo = TRUE
+            ORDER BY alias
+            """
+        )
+    ).mappings().all()
+    return [dict(r) for r in rows]
 
 # Dicionário em memória para "cachear" os aliases de unidade e evitar buscas repetidas no banco
 _aliases_de_unidade_cache = None
@@ -361,15 +425,22 @@ def create_prompt_exemplo(db: Session, prompt_id: int, exemplo: esquemas.PromptE
     db.commit()
     return result.first()._mapping
 
-def get_prompt_tool_selector(db: Session, espaco: str, versao: int):
-    return db.execute(
-        text("""
-            SELECT * FROM prompt_templates
-            WHERE nome = 'tool_selector'
-            AND espaco = :espaco
-            AND versao = :versao
-            AND ativo = true
-            LIMIT 1
-        """),
-        {"espaco": espaco, "versao": versao}
-    ).mappings().first()
+def get_prompt_por_nome_espaco_versao(db: Session, nome: str, espaco: str, versao: int):
+    return (
+        db.query(modelos.PromptTemplate)
+          .filter(
+              modelos.PromptTemplate.nome == nome,
+              modelos.PromptTemplate.espaco == espaco,
+              modelos.PromptTemplate.versao == versao,
+              modelos.PromptTemplate.ativo == True
+          )
+          .first()
+    )
+
+def get_prompt_exemplos(db: Session, prompt_id: int):
+    return (
+        db.query(modelos.PromptExemplo)
+          .filter(modelos.PromptExemplo.prompt_id == prompt_id,
+                  modelos.PromptExemplo.ativo == True)
+          .all()
+    )

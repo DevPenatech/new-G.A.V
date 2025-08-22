@@ -4,7 +4,8 @@ from fastapi import FastAPI, Depends, HTTPException, Body
 from typing import List
 from sqlalchemy.orm import Session
 
-from . import database, crud, esquemas
+from . import database, esquemas
+from . import crud  # agora existe (vide arquivo novo)
 
 app = FastAPI(
     title="API de Negócio - G.A.V.",
@@ -95,12 +96,28 @@ def endpoint_get_prompt(nome: str, db: Session = Depends(get_db)):
 @app.get("/unidades/aliases", tags=["Unidades"])
 def endpoint_get_unidade_aliases(db: Session = Depends(get_db)):
     """Retorna um dicionário de todos os aliases de unidade ativos."""
-    aliases = crud.get_all_unidade_aliases(db)
-    # Converte a lista de tuplas em um dicionário para fácil consumo
-    return {row.alias: row.unidade_principal for row in aliases}
-
+    rows = crud.get_all_unidade_aliases(db)
+    # Converte a lista de dicts em dict alias->unidade_principal
+    return {row["alias"]: row["unidade_principal"] for row in rows}
 
 # --- Endpoints de ADMIN ---
+@app.get("/admin/prompts/buscar", tags=["Admin"])
+def admin_buscar_prompt(nome: str, espaco: str = "legacy", versao: str = "v1", db: Session = Depends(get_db)):
+    """
+    Busca um template de prompt ativo por (nome, espaco, versao).
+    """
+    tpl = crud.get_prompt_ativo_por_nome_espaco_versao(db, nome=nome, espaco=espaco, versao=versao)
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Prompt não encontrado para os filtros informados.")
+    return tpl
+
+@app.get("/admin/prompts/{prompt_id}/exemplos/ativos", tags=["Admin"])
+def admin_listar_exemplos_ativos(prompt_id: int, db: Session = Depends(get_db)):
+    """
+    Lista exemplos ativos (few-shot) de um prompt.
+    """
+    return crud.get_prompt_exemplos_ativos(db, prompt_id=prompt_id)
+
 
 @app.get("/admin/prompts", response_model=List[esquemas.Prompt], tags=["Admin"])
 def admin_listar_prompts(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
@@ -140,12 +157,20 @@ def admin_criar_exemplo_prompt(prompt_id: int, exemplo: esquemas.PromptExemploCr
     """Adiciona um novo exemplo de ensino (few-shot) para um prompt."""
     return crud.create_prompt_exemplo(db=db, prompt_id=prompt_id, exemplo=exemplo)
 
-@app.get("/admin/prompts/prompt_tool_selector", tags=["Admin"])
-def admin_prompt_tool_selector(espaco: str, versao: int, db: Session = Depends(get_db)):
+# === NOVOS ENDPOINTS: PROMPTS (aderente ao seu banco) ===
+@app.get("/admin/prompts/por-nome", tags=["Admin"])
+def admin_get_prompt_por_nome(nome: str, espaco: str, versao: int, db: Session = Depends(get_db)):
     """
-    Retorna o prompt ativo usado para seleção de ferramenta, filtrando por espaço e versão.
+    Retorna um prompt ativo filtrando por nome + espaco + versao.
     """
-    prompt = crud.get_prompt_tool_selector(db, espaco=espaco, versao=versao)
+    prompt = crud.get_prompt_por_nome_espaco_versao(db, nome=nome, espaco=espaco, versao=versao)
     if not prompt:
         raise HTTPException(status_code=404, detail="Prompt não encontrado.")
     return prompt
+
+@app.get("/admin/prompts/{prompt_id}/exemplos", response_model=List[esquemas.PromptExemplo], tags=["Admin"])
+def admin_listar_exemplos_prompt(prompt_id: int, db: Session = Depends(get_db)):
+    """
+    Lista exemplos (few-shot) de um prompt.
+    """
+    return crud.get_prompt_exemplos(db, prompt_id=prompt_id)

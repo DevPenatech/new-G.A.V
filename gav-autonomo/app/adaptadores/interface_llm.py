@@ -1,39 +1,34 @@
-import httpx
-import json
-from jsonschema import validate, ValidationError
+import httpx, json
 from app.config.settings import config
 
-LLM_API_URL = config.OLLAMA_HOST  
+OLLAMA_URL = config.OLLAMA_HOST.rstrip("/")
+OLLAMA_MODEL = getattr(config, "OLLAMA_MODEL", "llama3.1:8b")
 
-def completar_para_json(sistema: str, entrada_usuario: str, exemplos: list, caminho_schema: str, modelo: str) -> dict:
-    mensagens = [{"role": "system", "content": sistema}]
-    
-    for ex in exemplos:
-        mensagens.append({"role": "user", "content": ex["exemplo_input"]})
-        mensagens.append({"role": "assistant", "content": ex["exemplo_output_json"]})
+def _montar_prompt(sistema: str, entrada_usuario: str, exemplos: list[dict]) -> str:
+    partes = [sistema.strip()]
+    for ex in (exemplos or []):
+        partes.append("Exemplo de entrada:\n" + (ex.get("exemplo_input") or "").strip())
+        partes.append("Exemplo de saída (JSON):\n" + (ex.get("exemplo_output_json") or "").strip())
+    partes.append("Entrada do usuário:\n" + (entrada_usuario or "").strip())
+    return "\n\n".join(partes)
 
-    mensagens.append({"role": "user", "content": entrada_usuario})
-
-    resposta = httpx.post(
-        LLM_API_URL,
-        json={"model": modelo, "messages": mensagens, "temperature": 0.2, "max_tokens": 500},
-        timeout=30
+def completar_para_json(sistema: str, entrada_usuario: str, exemplos: list[dict] | None = None, modelo: str | None = None) -> dict:
+    prompt_texto = _montar_prompt(sistema, entrada_usuario, exemplos or [])
+    resp = httpx.post(
+        f"{OLLAMA_URL}/api/generate",
+        json={
+            "model": modelo or OLLAMA_MODEL,
+            "prompt": prompt_texto,
+            "format": "json",     # força JSON
+            "stream": False,
+            "options": {"temperature": 0.1}
+        },
+        timeout=60.0
     )
-    resposta.raise_for_status()
-    
-    conteudo = resposta.json()["choices"][0]["message"]["content"]
-
+    resp.raise_for_status()
+    data = resp.json()
+    conteudo = data.get("response") or data.get("output") or ""
     try:
-        json_saida = json.loads(conteudo)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Resposta do LLM não é JSON válido: {e}")
-
-    with open(caminho_schema, "r", encoding="utf-8") as f:
-        schema = json.load(f)
-
-    try:
-        validate(instance=json_saida, schema=schema)
-    except ValidationError as e:
-        raise ValueError(f"JSON inválido conforme schema: {e}")
-
-    return json_saida
+        return json.loads(conteudo)
+    except json.JSONDecodeError:
+        raise ValueError("LLM não retornou JSON válido. Ajuste o template/exemplos.")
