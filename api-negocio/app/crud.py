@@ -446,3 +446,46 @@ def get_prompt_exemplos(db: Session, prompt_id: int):
                   modelos.PromptExemplo.ativo == True)
           .all()
     )
+    
+def salvar_contexto_sessao(db: Session, sessao_id: str, tipo_contexto: str, 
+                          contexto_estruturado: dict, mensagem_original: str = None,
+                          resposta_apresentada: str = None) -> int:
+    """Salva contexto estruturado de uma sessão no banco."""
+    stmt = text("""
+        INSERT INTO contexto_sessoes 
+        (sessao_id, tipo_contexto, contexto_estruturado, mensagem_original, resposta_apresentada)
+        VALUES (:sessao_id, :tipo_contexto, :contexto_estruturado, :mensagem_original, :resposta_apresentada)
+        RETURNING id;
+    """)
+    result = db.execute(stmt, {
+        "sessao_id": sessao_id,
+        "tipo_contexto": tipo_contexto,
+        "contexto_estruturado": json.dumps(contexto_estruturado),
+        "mensagem_original": mensagem_original,
+        "resposta_apresentada": resposta_apresentada
+    })
+    db.commit()
+    return result.scalar_one()
+
+def buscar_contexto_sessao(db: Session, sessao_id: str) -> Optional[Dict]:
+    """Busca o contexto mais recente de uma sessão."""
+    stmt = text("""
+        SELECT tipo_contexto, contexto_estruturado, mensagem_original,
+               resposta_apresentada, criado_em
+        FROM contexto_sessoes 
+        WHERE sessao_id = :sessao_id AND ativo = TRUE
+        ORDER BY criado_em DESC 
+        LIMIT 1;
+    """)
+    result = db.execute(stmt, {"sessao_id": sessao_id}).first()
+    
+    if not result:
+        return None
+    
+    return {
+        "tipo_contexto": result.tipo_contexto,
+        "contexto_estruturado": json.loads(result.contexto_estruturado),
+        "mensagem_original": result.mensagem_original,
+        "resposta_apresentada": result.resposta_apresentada,
+        "criado_em": result.criado_em
+    }

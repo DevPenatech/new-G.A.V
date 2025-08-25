@@ -125,3 +125,9 @@ class PromptExemplo(PromptExemploCreate):
 
     class Config:
         from_attributes = True
+
+class ContextoEntrada(BaseModel):
+    tipo_contexto: str
+    contexto_estruturado: Dict[str, Any]
+    mensagem_original: Optional[str] = None
+    resposta_apresentada: Optional[str] = None

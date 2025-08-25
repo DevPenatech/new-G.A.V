@@ -159,6 +159,19 @@ INSERT INTO prompt_templates (nome, template) VALUES
 ('prompt_sucesso_busca', E'A busca do usuário foi por ''{mensagem_usuario}''.\nEncontramos os seguintes resultados que correspondem exatamente ao pedido: {contexto}.\nSua tarefa é apresentar estes resultados de forma amigável e clara para o usuário.\nSua resposta DEVE ser um JSON no formato: {{"tool_name": "handle_chitchat", "parameters": {{"mensagem": "SUA_RESPOSTA_AQUI"}}}}');
 
 
+-- Criar tabela para contexto de sessões
+CREATE TABLE IF NOT EXISTS contexto_sessoes (
+    id SERIAL PRIMARY KEY,
+    sessao_id VARCHAR(255) NOT NULL,
+    tipo_contexto VARCHAR(100) NOT NULL,
+    contexto_estruturado JSONB NOT NULL,
+    mensagem_original TEXT,
+    resposta_apresentada TEXT,
+    criado_em TIMESTAMPTZ DEFAULT NOW(),
+    atualizado_em TIMESTAMPTZ DEFAULT NOW(),
+    ativo BOOLEAN DEFAULT TRUE
+);
+
 -- --- ÍNDICES DE PERFORMANCE ---
 
 CREATE OR REPLACE FUNCTION public.unaccent_immutable(text)
@@ -191,7 +204,6 @@ CREATE INDEX idx_produtos_busca_fts ON produtos USING GIN (public.produtos_fts_d
 -- Índice de Trigram, agora usando nossa função imutável
 CREATE INDEX idx_produtos_descricao_trgm ON produtos USING gin (public.unaccent_immutable(descricao) gin_trgm_ops);
 
-
 -- Índices B-Tree padrão para acelerar filtros e joins.
 CREATE INDEX idx_produtos_marca ON produtos (marca);
 CREATE INDEX idx_produto_itens_produto_id ON produto_itens (produto_id);
@@ -200,3 +212,25 @@ CREATE INDEX idx_carrinho_itens_carrinho_id ON carrinho_itens (carrinho_id);
 CREATE INDEX idx_pedidos_cliente_id ON pedidos (cliente_id);
 CREATE INDEX idx_pedido_itens_pedido_id ON pedido_itens (pedido_id);
 
+-- Índices para performance
+CREATE INDEX IF NOT EXISTS idx_contexto_sessoes_sessao_id ON contexto_sessoes (sessao_id);
+CREATE INDEX IF NOT EXISTS idx_contexto_sessoes_ativo ON contexto_sessoes (ativo);
+CREATE INDEX IF NOT EXISTS idx_contexto_sessoes_tipo ON contexto_sessoes (tipo_contexto);
+
+-- Função para limpeza automática
+CREATE OR REPLACE FUNCTION limpar_contextos_antigos()
+RETURNS void AS $$
+BEGIN
+    WITH contextos_rankeados AS (
+        SELECT id, 
+               ROW_NUMBER() OVER (PARTITION BY sessao_id ORDER BY criado_em DESC) as rn
+        FROM contexto_sessoes 
+        WHERE ativo = TRUE
+    )
+    UPDATE contexto_sessoes 
+    SET ativo = FALSE 
+    WHERE id IN (
+        SELECT id FROM contextos_rankeados WHERE rn > 3
+    );
+END;
+$$ LANGUAGE plpgsql;

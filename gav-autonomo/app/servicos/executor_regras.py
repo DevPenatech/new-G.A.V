@@ -114,32 +114,59 @@ def _executar_api_call(params: dict, sessao_id: str) -> dict:
         return {"erro": f"Falha na comunicação com API: {str(e)}"}
 
 def _processar_contexto_via_prompt(body: dict, sessao_id: str) -> dict:
-    """
-    ✅ NOVO: Processa contexto anterior 100% via prompt
-    Substitui toda lógica hardcoded de "seleção de produto"
-    """
+    """Processa referência do usuário usando contexto salvo"""
     try:
         mensagem_contexto = body.get("mensagem_contexto", "")
         
-        # Etapa 1: Buscar contexto anterior (pode vir do banco, session storage, etc.)
-        contexto_anterior = _buscar_contexto_anterior(sessao_id)
+        # Buscar contexto salvo do banco
+        contexto_banco = _buscar_contexto_do_banco(sessao_id)
+        contexto_anterior = {
+            "contexto": contexto_banco.get("contexto_estruturado", {}),
+            "tipo": contexto_banco.get("tipo_contexto", "nenhum")
+        }
         
-        # Etapa 2: LLM Processador interpreta a referência
-        referencia = _interpretar_referencia_via_prompt(mensagem_contexto, contexto_anterior, sessao_id)
+        # Interpretação simples: extrair número da mensagem
+        import re
+        numeros = re.findall(r'\b(\d+)\b', mensagem_contexto)
+        quantidade_match = re.search(r'(\d+)\s*(unidades?|do|da)', mensagem_contexto)
         
-        if referencia.get("acao") == "nova_interacao":
-            # Não é referência, processar como nova interação
-            return {"erro": "Não é referência ao contexto anterior"}
+        if numeros:
+            posicao = int(numeros[0])  # Primeiro número encontrado
+            quantidade = int(quantidade_match.group(1)) if quantidade_match else 1
+            
+            # Buscar produto na posição
+            produtos = contexto_anterior.get("contexto", {}).get("produtos", [])
+            produto_encontrado = None
+            
+            for produto in produtos:
+                if produto.get("posicao") == posicao:
+                    produto_encontrado = produto
+                    break
+            
+            if produto_encontrado:
+                # Adicionar ao carrinho com ID real
+                item_id_real = produto_encontrado.get("item_id")
+                print(f"✅ Mapeamento: posição {posicao} → item_id {item_id_real}")
+                
+                params_api = {
+                    "endpoint": "/carrinhos/{sessao_id}/itens",
+                    "method": "POST",
+                    "body": {
+                        "item_id": item_id_real,
+                        "quantidade": quantidade,
+                        "codfilial": 2
+                    }
+                }
+                return _executar_api_call(params_api, sessao_id)
+            else:
+                return {"erro": f"Posição {posicao} não encontrada no contexto"}
         
-        # Etapa 3: LLM Executor decide o que fazer com a referência
-        acao_execucao = _executar_referencia_via_prompt(referencia, contexto_anterior, sessao_id)
-        
-        # Etapa 4: Executar a ação decidida pelo LLM
-        return _executar_acao_contextual(acao_execucao, sessao_id)
+        # Se não encontrou número, não conseguiu processar
+        return {"erro": "Não consegui identificar qual produto você quer"}
         
     except Exception as e:
-        return {"erro": f"Erro no processamento de contexto: {str(e)}"}
-
+        return {"erro": f"Erro no processamento: {str(e)}"}
+    
 def _buscar_contexto_anterior(sessao_id: str) -> dict:
     """
     Busca contexto anterior de forma genérica.
@@ -233,10 +260,7 @@ def _executar_acao_contextual(acao: dict, sessao_id: str) -> dict:
         return {"erro": f"Ação contextual não reconhecida: {acao_tipo}"}
 
 def _apresentar_resultado(json_resultado: dict, mensagem_original: str, params_api: dict) -> dict:
-    """
-    ✅ Segunda etapa do pipeline: Transforma JSON da API em conversa natural via LLM Apresentador
-    (Mantém lógica original - genérica)
-    """
+    """Transforma JSON em conversa E salva contexto quando tem produtos numerados"""
     try:
         endpoint = params_api.get("endpoint", "")
         prompt_apresentador = _determinar_prompt_apresentador(endpoint, json_resultado)
@@ -257,10 +281,12 @@ def _apresentar_resultado(json_resultado: dict, mensagem_original: str, params_a
             exemplos=exemplos_apresentador
         )
         
-        # ✅ Salva contexto estruturado para uso futuro (genérico)
-        contexto_estruturado = resposta_conversacional.get("contexto_estruturado", {})
-        if contexto_estruturado:
-            _salvar_contexto_estruturado(mensagem_original, contexto_estruturado, endpoint)
+        # ✅ NOVO: Salva contexto no banco se tiver produtos numerados
+        sessao_id = params_api.get("sessao_id")
+        if sessao_id and sessao_id != "anon":
+            contexto_estruturado = resposta_conversacional.get("contexto_estruturado", {})
+            if contexto_estruturado and contexto_estruturado.get("produtos"):
+                _salvar_contexto_no_banco(sessao_id, contexto_estruturado, mensagem_original, resposta_conversacional.get("mensagem", ""))
         
         return {
             "mensagem": resposta_conversacional.get("mensagem", "Ops, não consegui processar isso..."),
@@ -379,3 +405,40 @@ mensagem_usuario: (contexto da mensagem original)"""
         
     except Exception as e:
         return {"erro": f"Reparo automático falhou: {str(e)}. Erro original: {erro_response.get('error')}"}
+    
+def _salvar_contexto_no_banco(sessao_id: str, contexto_estruturado: dict, mensagem_original: str, resposta_apresentada: str):
+    """Salva contexto no banco via API de negócio"""
+    try:
+        payload = {
+            "tipo_contexto": "busca_numerada",
+            "contexto_estruturado": contexto_estruturado,
+            "mensagem_original": mensagem_original,
+            "resposta_apresentada": resposta_apresentada
+        }
+        
+        response = httpx.post(f"{API_NEGOCIO_URL}/contexto/{sessao_id}", json=payload, timeout=10.0)
+        
+        if response.is_success:
+            print(f"✅ Contexto salvo para sessão {sessao_id}")
+        else:
+            print(f"❌ Erro ao salvar contexto: {response.status_code}")
+            
+    except Exception as e:
+        print(f"❌ Erro ao salvar contexto: {e}")
+
+def _buscar_contexto_do_banco(sessao_id: str) -> dict:
+    """Busca contexto do banco via API de negócio"""
+    try:
+        response = httpx.get(f"{API_NEGOCIO_URL}/contexto/{sessao_id}", timeout=10.0)
+        
+        if response.is_success:
+            contexto = response.json()
+            print(f"✅ Contexto recuperado para sessão {sessao_id}")
+            return contexto
+        else:
+            print(f"ℹ️ Nenhum contexto encontrado para sessão {sessao_id}")
+            return {"contexto_estruturado": {}}
+            
+    except Exception as e:
+        print(f"❌ Erro ao buscar contexto: {e}")
+        return {"contexto_estruturado": {}}

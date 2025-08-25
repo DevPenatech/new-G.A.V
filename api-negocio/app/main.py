@@ -174,3 +174,24 @@ def admin_listar_exemplos_prompt(prompt_id: int, db: Session = Depends(get_db)):
     Lista exemplos (few-shot) de um prompt.
     """
     return crud.get_prompt_exemplos(db, prompt_id=prompt_id)
+
+@app.post("/contexto/{sessao_id}", tags=["Contexto"], status_code=201)
+def endpoint_salvar_contexto(sessao_id: str, contexto: ContextoEntrada, db: Session = Depends(get_db)):
+    """Salva contexto estruturado para uma sessão."""
+    contexto_id = crud.salvar_contexto_sessao(
+        db, 
+        sessao_id=sessao_id, 
+        tipo_contexto=contexto.tipo_contexto,
+        contexto_estruturado=contexto.contexto_estruturado,
+        mensagem_original=contexto.mensagem_original,
+        resposta_apresentada=contexto.resposta_apresentada
+    )
+    return {"contexto_id": contexto_id, "status": "contexto salvo"}
+
+@app.get("/contexto/{sessao_id}", tags=["Contexto"])
+def endpoint_buscar_contexto(sessao_id: str, db: Session = Depends(get_db)):
+    """Busca o contexto mais recente de uma sessão."""
+    contexto = crud.buscar_contexto_sessao(db, sessao_id=sessao_id)
+    if not contexto:
+        raise HTTPException(status_code=404, detail="Contexto não encontrado para esta sessão")
+    return contexto
