@@ -114,7 +114,7 @@ def _executar_api_call(params: dict, sessao_id: str) -> dict:
         return {"erro": f"Falha na comunicação com API: {str(e)}"}
 
 def _processar_contexto_via_prompt(body: dict, sessao_id: str) -> dict:
-    """Processa referência do usuário usando contexto salvo"""
+    """Processa referência do usuário usando contexto salvo - AGORA COM IDs DIRETOS"""
     try:
         mensagem_contexto = body.get("mensagem_contexto", "")
         
@@ -125,44 +125,80 @@ def _processar_contexto_via_prompt(body: dict, sessao_id: str) -> dict:
             "tipo": contexto_banco.get("tipo_contexto", "nenhum")
         }
         
-        # Interpretação simples: extrair número da mensagem
+        # ✅ NOVO: Interpretação por ID direto (mais simples e confiável)
         import re
-        numeros = re.findall(r'\b(\d+)\b', mensagem_contexto)
-        quantidade_match = re.search(r'(\d+)\s*(unidades?|do|da)', mensagem_contexto)
         
-        if numeros:
-            posicao = int(numeros[0])  # Primeiro número encontrado
+        # 1. Primeiro tenta extrair ID numérico direto
+        id_matches = re.findall(r'\b(\d{4,6})\b', mensagem_contexto)  # IDs com 4-6 dígitos
+        
+        if id_matches:
+            item_id_referenciado = int(id_matches[0])  # Primeiro ID encontrado
+            quantidade_match = re.search(r'(\d+)\s*(unidades?|do|da|vezes?)', mensagem_contexto)
             quantidade = int(quantidade_match.group(1)) if quantidade_match else 1
             
-            # Buscar produto na posição
+            # Buscar produto pelo ID no contexto
             produtos = contexto_anterior.get("contexto", {}).get("produtos", [])
             produto_encontrado = None
             
             for produto in produtos:
-                if produto.get("posicao") == posicao:
+                if produto.get("item_id") == item_id_referenciado:
                     produto_encontrado = produto
                     break
             
             if produto_encontrado:
-                # Adicionar ao carrinho com ID real
-                item_id_real = produto_encontrado.get("item_id")
-                print(f"✅ Mapeamento: posição {posicao} → item_id {item_id_real}")
+                print(f"✅ Mapeamento direto: ID {item_id_referenciado} encontrado no contexto")
                 
+                # Adicionar ao carrinho com ID direto
                 params_api = {
                     "endpoint": "/carrinhos/{sessao_id}/itens",
                     "method": "POST",
                     "body": {
-                        "item_id": item_id_real,
+                        "item_id": item_id_referenciado,
                         "quantidade": quantidade,
                         "codfilial": 2
                     }
                 }
                 return _executar_api_call(params_api, sessao_id)
             else:
-                return {"erro": f"Posição {posicao} não encontrada no contexto"}
+                return {"erro": f"ID {item_id_referenciado} não encontrado no contexto atual"}
         
-        # Se não encontrou número, não conseguiu processar
-        return {"erro": "Não consegui identificar qual produto você quer"}
+        # 2. Se não encontrou ID direto, tenta processamento via prompt (para casos como "o primeiro", "esse", etc.)
+        try:
+            p_processador = obter_prompt_por_nome(nome="prompt_processador_contexto", espaco="autonomo", versao=1)
+            exemplos_processador = listar_exemplos_prompt(p_processador["id"])
+            
+            contexto_input = f"""mensagem_contexto: "{mensagem_contexto}"
+sessao_id: "{sessao_id}"
+contexto_anterior: {json.dumps(contexto_anterior, ensure_ascii=False)}"""
+
+            referencia_resultado = completar_para_json(
+                sistema=p_processador["template"],
+                entrada_usuario=contexto_input,
+                exemplos=exemplos_processador
+            )
+            
+            if referencia_resultado.get("acao") == "processar_referencia":
+                # Processar via executor de referência
+                p_executor = obter_prompt_por_nome(nome="prompt_executor_referencia", espaco="autonomo", versao=1)
+                exemplos_executor = listar_exemplos_prompt(p_executor["id"])
+                
+                executor_input = f"""referencia_detectada: {json.dumps(referencia_resultado.get("referencia", {}), ensure_ascii=False)}
+contexto_anterior: {json.dumps(contexto_anterior.get("contexto", {}), ensure_ascii=False)}
+sessao_id: "{sessao_id}" """
+
+                acao_resultado = completar_para_json(
+                    sistema=p_executor["template"],
+                    entrada_usuario=executor_input,
+                    exemplos=exemplos_executor
+                )
+                
+                return _executar_acao_contextual(acao_resultado, sessao_id)
+            
+        except Exception as e:
+            print(f"Erro no processamento via prompt: {e}")
+        
+        # 3. Fallback: não conseguiu processar
+        return {"erro": "Não consegui identificar qual produto você quer. Pode usar o ID direto do produto?"}
         
     except Exception as e:
         return {"erro": f"Erro no processamento: {str(e)}"}
