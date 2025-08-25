@@ -1,7 +1,7 @@
 # api-negocio/app/main.py
 
 from fastapi import FastAPI, Depends, HTTPException, Body
-from typing import List
+from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 
 from . import database, esquemas
@@ -176,7 +176,7 @@ def admin_listar_exemplos_prompt(prompt_id: int, db: Session = Depends(get_db)):
     return crud.get_prompt_exemplos(db, prompt_id=prompt_id)
 
 @app.post("/contexto/{sessao_id}", tags=["Contexto"], status_code=201)
-def endpoint_salvar_contexto(sessao_id: str, contexto: ContextoEntrada, db: Session = Depends(get_db)):
+def endpoint_salvar_contexto(sessao_id: str, contexto: esquemas.ContextoEntrada, db: Session = Depends(get_db)):
     """Salva contexto estruturado para uma sessão."""
     contexto_id = crud.salvar_contexto_sessao(
         db, 

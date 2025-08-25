@@ -298,14 +298,6 @@ def _apresentar_resultado(json_resultado: dict, mensagem_original: str, params_a
         print(f"Erro na apresentação: {e}")
         return json_resultado
 
-def _salvar_contexto_estruturado(mensagem_original: str, contexto: dict, endpoint: str):
-    """
-    ✅ Salva contexto de forma genérica (não específica de produtos)
-    Pode ser banco, cache, etc. - não hardcoded em RAM
-    """
-    # TODO: Implementar salvamento real
-    # Por enquanto, apenas log
-    print(f"Contexto estruturado salvo: {contexto}")
 
 # === FUNÇÕES AUXILIARES (mantém as originais) ===
 
