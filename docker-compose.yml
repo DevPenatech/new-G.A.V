@@ -71,6 +71,28 @@ services:
     depends_on:
       - gav_autonomo
 
+  conector-vonage:
+    build: ./conector-vonage
+    container_name: conector-vonage
+    environment:
+      - VONAGE_APPLICATION_ID=${VONAGE_APPLICATION_ID}
+      - VONAGE_PRIVATE_KEY_PATH=/run/secrets/vonage_private_key
+      - VONAGE_API_KEY=${VONAGE_API_KEY}
+      - VONAGE_API_SECRET=${VONAGE_API_SECRET}
+      - VONAGE_WHATSAPP_NUMBER=${VONAGE_WHATSAPP_NUMBER}
+      - ORQUESTRADOR_URL=${ORQUESTRADOR_URL}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL}
+    ports:
+      - "8088:8088"
+    depends_on:
+      - gav_autonomo
+    secrets:
+      - vonage_private_key
+
+secrets:
+  vonage_private_key:
+    file: ./conector-vonage/private.key
+
 volumes:
   postgres_data:
     driver: local
