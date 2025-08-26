@@ -1,18 +1,34 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 
-// Função simples para renderizar markdown básico
+// --- Config de backend ---
+// 1) defina REACT_APP_API_URL no .env do React (ex.: http://localhost:8000)
+// 2) ou use "proxy" no package.json e chame apenas "/chat"
+const API_URL =
+  process.env.REACT_APP_API_URL?.replace(/\/$/, '') ||
+  ''; // vazio => usará fetch relativo, requer "proxy" no package.json
+
+// Renderizador Markdown básico (simples)
 const renderMarkdown = (text) => {
-  const html = text
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+  const safe = String(text ?? '');
+  const html = safe
+    .replace(/&/g, '&amp;') // escape básico
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    // títulos
     .replace(/^#{3}\s(.+)$/gm, '<h3>$1</h3>')
     .replace(/^#{2}\s(.+)$/gm, '<h2>$1</h2>')
     .replace(/^#{1}\s(.+)$/gm, '<h1>$1</h1>')
-    .replace(/^\*\s(.+)$/gm, '<li>$1</li>')
-    .replace(/(\n<li>.*<\/li>\n)/gs, '<ul>$1</ul>')
+    // bold/italico
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    // code inline
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\n/g, '<br>');
+    // listas simples por linha começando com "- " ou "* "
+    .replace(/^(?:-|\*)\s(.+)$/gm, '<li>$1</li>')
+    .replace(/(?:<li>.*<\/li>\s*)+/g, (m) => `<ul>${m}</ul>`)
+    // quebras de linha
+    .replace(/\n/g, '<br/>');
 
   return { __html: html };
 };
@@ -20,7 +36,7 @@ const renderMarkdown = (text) => {
 function App() {
   const [theme, setTheme] = useState(localStorage.getItem('chat-theme') || 'light');
   const [messages, setMessages] = useState([
-    { from: 'bot', text: 'Olá! Sou seu assistente de testes. Digite ou fale sua mensagem.' }
+    { from: 'bot', text: 'Olá! Sou seu assistente de testes. Digite sua mensagem.' }
   ]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -35,52 +51,71 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const toggleTheme = () => {
-    setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
+    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
   };
 
   const handleSend = async (e) => {
     e.preventDefault();
-    if (!input.trim()) return;
+    const texto = input.trim();
+    if (!texto) return;
 
-    const userMessage = { from: 'user', text: input };
-    setMessages(prev => [...prev, userMessage]);
+    const userMessage = { from: 'user', text: texto };
+    setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setIsTyping(true);
 
     try {
-      const response = await fetch('http://localhost:8000/webhook/webchat', {
+      // Se API_URL === '' usamos caminho relativo (requer proxy no package.json)
+      const url = `${API_URL}/chat`;
+      const resp = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          texto: input,
+          texto,
           sessao_id: 'local-dev-user'
-        }),
+        })
       });
 
-      const data = await response.json();
-      setMessages(prev => [...prev, { from: 'bot', text: data.conteudo_markdown }]);
+      // Falha HTTP?
+      if (!resp.ok) {
+        const errTxt = await resp.text();
+        throw new Error(`HTTP ${resp.status} - ${errTxt}`);
+      }
 
-    } catch (error) {
-      console.error("Erro ao enviar mensagem:", error);
-      setMessages(prev => [...prev, { from: 'bot', text: 'Erro de conexão com backend.' }]);
+      const data = await resp.json();
+      // o backend pode devolver "mensagem" OU "conteudo_markdown"
+      const reply =
+        data?.mensagem ??
+        data?.conteudo_markdown ??
+        data?.text ??
+        '(sem resposta)';
+
+      setMessages((prev) => [...prev, { from: 'bot', text: String(reply) }]);
+    } catch (err) {
+      console.error('Erro ao enviar mensagem:', err);
+      setMessages((prev) => [
+        ...prev,
+        { from: 'bot', text: 'Erro de conexão com backend.' }
+      ]);
     } finally {
       setIsTyping(false);
     }
   };
 
   const gravarAudio = async () => {
+    // mantém, mas o endpoint /webchat/audio precisa existir no backend
     if (gravando) {
-      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current?.stop();
       setGravando(false);
       return;
     }
 
     if (!navigator.mediaDevices?.getUserMedia) {
-      alert("Seu navegador não suporta gravação de áudio.");
+      alert('Seu navegador não suporta gravação de áudio.');
       return;
     }
 
@@ -100,17 +135,27 @@ function App() {
 
         setIsTyping(true);
         try {
-          const response = await fetch('/webchat/audio', {
+          const url = `${API_URL}/webchat/audio`;
+          const resp = await fetch(url, {
             method: 'POST',
-            body: formData,
+            body: formData
           });
 
-          const data = await response.json();
-          setMessages(prev => [...prev, { from: 'bot', text: data.conteudo_markdown }]);
+          if (!resp.ok) {
+            const errTxt = await resp.text();
+            throw new Error(`HTTP ${resp.status} - ${errTxt}`);
+          }
 
+          const data = await resp.json();
+          const reply =
+            data?.mensagem ??
+            data?.conteudo_markdown ??
+            data?.text ??
+            '(sem resposta de áudio)';
+          setMessages((prev) => [...prev, { from: 'bot', text: String(reply) }]);
         } catch (error) {
-          console.error("Erro ao enviar áudio:", error);
-          setMessages(prev => [...prev, { from: 'bot', text: 'Erro ao processar áudio.' }]);
+          console.error('Erro ao enviar áudio:', error);
+          setMessages((prev) => [...prev, { from: 'bot', text: 'Erro ao processar áudio.' }]);
         } finally {
           setIsTyping(false);
         }
@@ -119,9 +164,8 @@ function App() {
       mediaRecorder.start();
       mediaRecorderRef.current = mediaRecorder;
       setGravando(true);
-
     } catch (err) {
-      console.error("Erro ao acessar microfone:", err);
+      console.error('Erro ao acessar microfone:', err);
     }
   };
 
@@ -135,8 +179,8 @@ function App() {
       </div>
 
       <div className="chat-window">
-        {messages.map((msg, index) => (
-          <div key={index} className={`message ${msg.from}`}>
+        {messages.map((msg, idx) => (
+          <div key={idx} className={`message ${msg.from}`}>
             {msg.from === 'bot' ? (
               <div className="markdown-content" dangerouslySetInnerHTML={renderMarkdown(msg.text)} />
             ) : (

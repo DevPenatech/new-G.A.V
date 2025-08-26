@@ -1,71 +1,132 @@
-# file: conector-vonage/main.py
-from fastapi import FastAPI, HTTPException
+# topo do arquivo
+import os, time, hashlib, httpx
+from typing import Optional
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-import os
-import httpx
+from cliente_vonage import send_text_whatsapp, health as sandbox_health
+
+CHAT_URL = os.getenv("CHAT_URL", "http://gav_autonomo:8000/chat").strip()
+TIMEOUT_CHAT = int(os.getenv("CHAT_TIMEOUT_SECONDS") or "60")
+SANDBOX_FROM = "".join(ch for ch in (os.getenv("VONAGE_SANDBOX_FROM") or "") if ch.isdigit())
+
+# memoria de curto prazo para idempotência (5 min)
+_RECENT: dict[str, float] = {}
+_TTL = 300.0  # segundos
+
+def _digits(s: Optional[str]) -> str:
+    return "".join(ch for ch in (s or "") if ch.isdigit())
+
+def _gc_recent(now: float):
+    # limpa chaves antigas
+    dead = [k for k, t in _RECENT.items() if now - t > _TTL]
+    for k in dead:
+        _RECENT.pop(k, None)
+
+def _mk_id(message_uuid: Optional[str], numero: str, texto: str, ts: Optional[str]) -> str:
+    if message_uuid:
+        return f"uuid:{message_uuid}"
+    h = hashlib.sha1(f"{numero}|{texto}|{ts or ''}".encode("utf-8")).hexdigest()
+    return f"hash:{h}"
+
+async def _call_chat(texto: str, sessao_id: str) -> str:
+    payload = {"texto": texto, "sessao_id": sessao_id}
+    async with httpx.AsyncClient(timeout=TIMEOUT_CHAT) as client:
+        r = await client.post(CHAT_URL, json=payload)
+        r.raise_for_status()
+        try:
+            data = r.json()
+        except Exception:
+            data = {}
+    return str(data.get("mensagem") or "") or "(sem resposta do /chat)"
+
+def _extract_inbound(body: dict) -> tuple[str, str, Optional[str], Optional[str]]:
+    """
+    Retorna (numero, texto, message_uuid, timestamp)
+    Suporta formato simples e Messages API.
+    """
+    # formato simples {from: "55...", text: "..."}
+    if "text" in body and isinstance(body.get("from"), (str, int)):
+        numero = _digits(str(body.get("from")))
+        texto = str(body.get("text") or "")
+        message_uuid = body.get("message_uuid") or body.get("id")
+        ts = body.get("timestamp") or body.get("time")
+        return numero, texto, message_uuid, ts
+
+    # Messages API
+    numero = _digits(((body.get("from") or {}).get("number") or ""))
+    content = ((body.get("message") or {}).get("content") or {})
+    texto = content.get("text") if content.get("type") == "text" else ""
+    message_uuid = body.get("message_uuid") or body.get("uuid") or body.get("id")
+    ts = body.get("timestamp") or body.get("received_time") or body.get("time")
+    return numero, str(texto or ""), message_uuid, ts
 
 app = FastAPI(title="conector-vonage-sandbox")
 
-VONAGE_API_KEY = os.getenv("VONAGE_API_KEY", "").strip()
-VONAGE_API_SECRET = os.getenv("VONAGE_API_SECRET", "").strip()
-SANDBOX_FROM = os.getenv("VONAGE_SANDBOX_FROM", "14157386102").strip()
-SANDBOX_ENDPOINT = os.getenv("VONAGE_SANDBOX_ENDPOINT", "https://messages-sandbox.nexmo.com/v1/messages").strip()
-TIMEOUT = int(os.getenv("VONAGE_TIMEOUT_SECONDS", "30"))
-
-def so_digitos(s: str | None) -> str:
-    return "".join(ch for ch in (s or "") if ch.isdigit())
-
 @app.get("/healthz")
 async def healthz():
-    errors = []
-    if not VONAGE_API_KEY:
-        errors.append("VONAGE_API_KEY ausente")
-    if not VONAGE_API_SECRET:
-        errors.append("VONAGE_API_SECRET ausente")
-    return {
-        "ok": len(errors) == 0,
-        "mode": "sandbox",
-        "from": SANDBOX_FROM[-4:],
-        "endpoint": SANDBOX_ENDPOINT,
-        "errors": errors,
-    }
+    h = sandbox_health()
+    h["chat_url"] = CHAT_URL
+    h["dedupe_size"] = len(_RECENT)
+    return h
 
-@app.post("/send")
-async def send(payload: dict):
-    # payload: { "to": "55DDDNUMERO", "text": "mensagem" }
-    to = so_digitos(payload.get("to"))
-    text = (payload.get("text") or "").strip()
+@app.post("/webhooks/inbound")
+async def inbound_vonage(request: Request):
+    body = await request.json()
+    numero, texto, message_uuid, ts = _extract_inbound(body)
 
-    if not VONAGE_API_KEY or not VONAGE_API_SECRET:
-        raise HTTPException(status_code=500, detail="Configure VONAGE_API_KEY e VONAGE_API_SECRET (sandbox).")
-    if not to or len(to) < 10 or len(to) > 15:
-        raise HTTPException(status_code=400, detail='Campo "to" ausente ou inválido (use E.164 sem +).')
-    if not text:
-        raise HTTPException(status_code=400, detail='Campo "text" ausente ou vazio.')
+    # ignora eco (mensagens vindas do próprio remetente sandbox)
+    if SANDBOX_FROM and numero == SANDBOX_FROM:
+        return JSONResponse({"ok": True, "ignored": "self-message"})
 
-    payload_out = {
-        "from": so_digitos(SANDBOX_FROM),
-        "to": to,
-        "message_type": "text",
-        "text": text,
-        "channel": "whatsapp",
-    }
+    # idempotência
+    now = time.time()
+    _gc_recent(now)
+    msg_id = _mk_id(message_uuid, numero, texto, ts)
+    if msg_id in _RECENT:
+        return JSONResponse({"ok": True, "ignored": "duplicate"})
+    _RECENT[msg_id] = now
 
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        r = await client.post(
-            SANDBOX_ENDPOINT,
-            auth=(VONAGE_API_KEY, VONAGE_API_SECRET),  # Basic Auth (sandbox)
-            json=payload_out,
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
-        )
+    # processa
+    if not numero:
+        return JSONResponse({"ok": True, "warn": "sem numero remetente"}, status_code=200)
 
-    if r.status_code >= 400:
-        # devolve o erro do sandbox na lata (geralmente "número não verificado" ou credenciais inválidas)
-        raise HTTPException(status_code=r.status_code, detail=r.text)
+    resposta = await _call_chat(texto, numero)
+    envio = await send_text_whatsapp(to=numero, text=resposta)
+    if not envio.get("ok"):
+        raise HTTPException(status_code=envio.get("status", 400), detail=envio)
+    return JSONResponse({"ok": True})
 
+# mantém também o /inbound manual para testes locais
+@app.post("/inbound")
+async def inbound_local(payload: dict):
+    numero, texto, message_uuid, ts = _extract_inbound(payload)
+
+    if SANDBOX_FROM and numero == SANDBOX_FROM:
+        return {"ok": True, "ignored": "self-message"}
+
+    now = time.time(); _gc_recent(now)
+    msg_id = _mk_id(message_uuid, numero, texto, ts)
+    if msg_id in _RECENT:
+        return {"ok": True, "ignored": "duplicate"}
+    _RECENT[msg_id] = now
+
+    if not numero:
+        raise HTTPException(status_code=400, detail='Informe "from" (E.164 sem +).')
+
+    resposta = await _call_chat(texto, numero)
+    envio = await send_text_whatsapp(to=numero, text=resposta)
+    if not envio.get("ok"):
+        raise HTTPException(status_code=envio.get("status", 400), detail=envio)
+    return {"ok": True, "to": numero}
+
+@app.post("/webhooks/status")
+async def status_post(request: Request):
     try:
-        body = r.json()
+        _ = await request.json()
     except Exception:
-        body = {"raw": r.text}
+        _ = None
+    return JSONResponse({"ok": True})
 
-    return {"ok": True, "mode": "sandbox", "to": to, "from": payload_out["from"], "response": body}
+@app.get("/webhooks/status")
+async def status_get():
+    return JSONResponse({"ok": True})
