@@ -1,22 +1,20 @@
 # gav-autonomo/app/main.py
 """
-Sistema Híbrido Inteligente:
-- PHI3:mini para decisões (0.04s)
-- Qwen2:7b seletivo para apresentação rica (3s quando necessário)
-- Templates rápidos para casos simples
+Sistema Final - Qwen2:7b Otimizado
+Performance + Formatação Rica Original
 """
 
 import time
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-# Import do executor híbrido
-from app.servicos.executor_hibrido_inteligente import (
-    executar_regras_hibrido_inteligente, 
-    get_stats_hibrido
+# Import do executor qwen2 otimizado
+from app.servicos.executor_qwen2_otimizado import (
+    executar_regras_qwen2_otimizado, 
+    get_stats_qwen2_otimizado
 )
 
-app = FastAPI(title="G.A.V. Autonomo - Sistema Híbrido Inteligente")
+app = FastAPI(title="G.A.V. Autonomo - Qwen2 Otimizado Final")
 
 class EntradaChat(BaseModel):
     texto: str
@@ -24,43 +22,45 @@ class EntradaChat(BaseModel):
 
 @app.get("/ping")
 async def ping():
-    """Status do sistema híbrido"""
-    stats = get_stats_hibrido()
+    """Status do sistema final"""
+    stats = get_stats_qwen2_otimizado()
     return {
         "status": "ok", 
-        "version": "HIBRIDO_INTELIGENTE_v1",
-        "modelo_decisao": stats["modelo_decisao"],
-        "modelo_apresentacao": stats["modelo_apresentacao"],
-        "cache_size": stats["cache_prompts"]
+        "version": "QWEN2_OTIMIZADO_FINAL",
+        "modelo": stats["modelo_unico"],
+        "cache_size": stats["cache_prompts"],
+        "performance": stats["performance_target"]
     }
 
 @app.get("/health")
 async def health():
-    """Health check detalhado"""
-    stats = get_stats_hibrido()
+    """Health check do sistema final"""
+    stats = get_stats_qwen2_otimizado()
     return {
         "status": "healthy",
-        "version": "HIBRIDO_INTELIGENTE_v1",
+        "version": "QWEN2_OTIMIZADO_FINAL",
         "arquitetura": {
-            "decisoes": f"{stats['modelo_decisao']} (0.04s)",
-            "apresentacao_simples": "templates (0.1s)",
-            "apresentacao_rica": f"{stats['modelo_apresentacao']} (3s)",
-            "estrategia": stats["estrategia"]
+            "modelo_unico": stats["modelo_unico"],
+            "configuracoes": stats["configuracoes"],
+            "estrategia": "Um modelo, duas configurações otimizadas"
         },
         "performance_target": stats["performance_target"],
-        "cache_stats": {
-            "prompts": stats["cache_prompts"],
-            "llm_responses": stats["cache_llm_responses"]
-        }
+        "features": [
+            "formatacao_original_com_ids_numerados",
+            "emojis_contextuais",
+            "call_to_action_claro",
+            "cache_agressivo_duplo",
+            "contexto_estruturado_completo"
+        ]
     }
 
 @app.post("/chat")
 async def receber_mensagem(body: EntradaChat):
-    """Endpoint híbrido inteligente"""
+    """Endpoint final otimizado"""
     inicio = time.time()
     
-    # Executor híbrido que decide qual modelo usar
-    resultado = executar_regras_hibrido_inteligente(body.model_dump())
+    # Executor Qwen2:7b otimizado
+    resultado = executar_regras_qwen2_otimizado(body.model_dump())
     
     tempo_resposta = time.time() - inicio
     
@@ -71,128 +71,65 @@ async def receber_mensagem(body: EntradaChat):
         
         resultado["_performance"].update({
             "tempo_total_ms": round(tempo_resposta * 1000, 2),
-            "versao": "HIBRIDO_INTELIGENTE_v1"
+            "versao": "QWEN2_OTIMIZADO_FINAL"
         })
     
     return resultado
 
-@app.get("/estrategia/explicacao")
-async def explicar_estrategia():
-    """Explica como funciona a estratégia híbrida"""
+@app.get("/comparacao/versoes")
+async def comparacao_versoes():
+    """Compara todas as versões implementadas"""
     return {
-        "conceito": "Usa o modelo mais adequado para cada tarefa",
-        "fases": {
-            "1_decisao": {
-                "modelo": "phi3:mini",
-                "tempo": "0.04s",
-                "funcao": "Classifica intenção, decide API call"
-            },
-            "2_api": {
-                "processo": "HTTP request",
-                "tempo": "0.2s",
-                "funcao": "Busca dados, executa operação"
-            },
-            "3_apresentacao": {
-                "avaliacao": "Analisa complexidade da resposta",
-                "opcoes": {
-                    "simples": "Template rápido (0.1s)",
-                    "media": "Template ou LLM com timeout baixo",
-                    "complexa": "Qwen2:7b completo (3s)"
-                }
-            }
+        "evolucao_performance": {
+            "original_lento": "15-17s (qwen2:7b + 42 exemplos + timeout 60s)",
+            "hibrido_phi3": "1.4s (phi3:mini rápido + templates básicos)",
+            "qwen2_otimizado": "3-5s (qwen2:7b + configurações específicas + formatação rica)"
         },
-        "criterios_complexidade": {
-            "simples": ["Adição ao carrinho", "Carrinho vazio", "Confirmações"],
-            "media": ["2-4 produtos", "Carrinho pequeno", "Operações básicas"],
-            "complexa": ["5+ produtos", "Comparações", "Recomendações", "Contexto rico"]
+        "comparacao_formatacao": {
+            "original": "IDs numerados + emojis + contexto completo",
+            "phi3_templates": "Formatação básica, sem IDs numerados",
+            "qwen2_otimizado": "Formatação original COMPLETA + IDs numerados"
         },
-        "exemplo_fluxo": {
-            "busca_simples": "PHI3(0.04s) → API(0.2s) → Template(0.1s) = 0.34s",
-            "busca_complexa": "PHI3(0.04s) → API(0.2s) → Qwen2(3s) = 3.24s",
-            "cache_hit": "PHI3_cache(0.01s) → API(0.2s) → Template(0.1s) = 0.31s"
+        "melhor_estrategia": {
+            "decisao": "Use qwen2_otimizado para tudo",
+            "motivo": "Equilibra velocidade (3-5s) com qualidade original",
+            "vantagem": "Formatação rica igual ao git original, mas 70% mais rápido"
         }
     }
 
-@app.get("/debug/complexidade")
-async def debug_complexidade():
-    """Testa análise de complexidade"""
-    from app.servicos.executor_hibrido_inteligente import analisar_complexidade_resposta
-    
-    casos_teste = [
-        {
-            "caso": "Carrinho vazio",
-            "dados": {"itens": [], "valor_total": 0},
-            "mensagem": "meu carrinho"
-        },
-        {
-            "caso": "Busca simples",
-            "dados": {"resultados": [{"id": 1, "itens": [{"id": 101}]}]},
-            "mensagem": "buscar chocolate"
-        },
-        {
-            "caso": "Busca complexa",
-            "dados": {"resultados": [
-                {"id": 1, "itens": [{"id": 101}, {"id": 102}]},
-                {"id": 2, "itens": [{"id": 201}, {"id": 202}, {"id": 203}]},
-                {"id": 3, "itens": [{"id": 301}]}
-            ]},
-            "mensagem": "qual o melhor chocolate"
-        },
-        {
-            "caso": "Adição carrinho",
-            "dados": {"status": "item adicionado", "carrinho_id": 123},
-            "mensagem": "coloque 5 do produto 456"
-        }
-    ]
-    
-    resultados = []
-    for caso in casos_teste:
-        complexidade = analisar_complexidade_resposta(caso["dados"], caso["mensagem"])
-        resultados.append({
-            "caso": caso["caso"],
-            "complexidade_detectada": complexidade,
-            "modelo_recomendado": "template" if complexidade == "simples" else "qwen2:7b",
-            "tempo_estimado": "0.1s" if complexidade == "simples" else "3s"
-        })
-    
-    return {"analise_casos": resultados}
-
 @app.get("/cache/stats")
 async def cache_stats():
-    """Stats do sistema híbrido"""
-    return get_stats_hibrido()
+    """Stats detalhadas do cache"""
+    return get_stats_qwen2_otimizado()
 
 @app.post("/cache/clear")
 async def clear_cache():
-    """Limpa cache do sistema híbrido"""
-    from app.servicos.executor_hibrido_inteligente import CACHE_PROMPTS, CACHE_RESPOSTAS_LLM
+    """Limpa cache"""
+    from app.servicos.executor_qwen2_otimizado import CACHE_PROMPTS, CACHE_RESPOSTAS_LLM
     CACHE_PROMPTS.clear()
     CACHE_RESPOSTAS_LLM.clear()
-    return {"status": "cache_cleared", "version": "HIBRIDO_INTELIGENTE_v1"}
+    return {"status": "cache_cleared", "version": "QWEN2_OTIMIZADO_FINAL"}
 
-@app.get("/benchmark")
-async def benchmark_modelos():
-    """Compara performance dos diferentes approaches"""
+@app.get("/modelo/configuracoes")
+async def modelo_configuracoes():
+    """Mostra configurações específicas por tarefa"""
     return {
-        "cenarios": {
-            "busca_simples_1_produto": {
-                "template": "0.34s",
-                "llm_sempre": "3.24s",
-                "hibrido": "0.34s (usa template)",
-                "economia": "89% mais rápido que LLM sempre"
-            },
-            "busca_complexa_10_produtos": {
-                "template": "0.34s (formatação limitada)",
-                "llm_sempre": "3.24s (formatação rica)",
-                "hibrido": "3.24s (usa LLM para riqueza)",
-                "beneficio": "Qualidade mantida quando necessário"
-            },
-            "adicao_carrinho": {
-                "template": "0.31s",
-                "llm_sempre": "3.21s",
-                "hibrido": "0.31s (usa template)",
-                "economia": "90% mais rápido para operação simples"
-            }
+        "modelo_base": "qwen2:7b",
+        "configuracao_decisao": {
+            "timeout": "5s",
+            "max_tokens": 200,
+            "temperature": 0.05,
+            "exemplos": "máximo 2",
+            "objetivo": "Velocidade e consistência",
+            "tempo_esperado": "1-2s"
         },
-        "estrategia": "Melhor dos mundos: velocidade para casos simples, riqueza para casos complexos"
+        "configuracao_apresentacao": {
+            "timeout": "10s", 
+            "max_tokens": 800,
+            "temperature": 0.15,
+            "exemplos": "completos",
+            "objetivo": "Formatação rica com IDs numerados",
+            "tempo_esperado": "2-4s"
+        },
+        "resultado_final": "3-5s total com formatação original mantida"
     }
