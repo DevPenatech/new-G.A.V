@@ -194,4 +194,16 @@ def endpoint_buscar_contexto(sessao_id: str, db: Session = Depends(get_db)):
     contexto = crud.buscar_contexto_sessao(db, sessao_id=sessao_id)
     if not contexto:
         raise HTTPException(status_code=404, detail="Contexto não encontrado para esta sessão")
+    # Normaliza o tipo de 'contexto_estruturado' para evitar TypeError quando já vier dict
+    ce = contexto.get("contexto_estruturado")
+    if isinstance(ce, (bytes, bytearray)):
+        ce = ce.decode("utf-8", errors="ignore")
+    if isinstance(ce, str):
+        try:
+            contexto["contexto_estruturado"] = json.loads(ce)
+        except Exception:
+            contexto["contexto_estruturado"] = {}
+    elif ce is None:
+        contexto["contexto_estruturado"] = {}
+    # se já for dict/list, mantém como está
     return contexto

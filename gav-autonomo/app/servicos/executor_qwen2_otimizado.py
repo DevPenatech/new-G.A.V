@@ -1,430 +1,473 @@
 # gav-autonomo/app/servicos/executor_qwen2_otimizado.py
 """
-Executor Qwen2:7b Otimizado - Melhor Performance + Formatação Rica
-- Qwen2:7b para tudo, mas configurações diferentes para cada fase
-- Decisão: timeout 5s, poucos exemplos, temperature baixa
-- Apresentação: timeout 10s, exemplos completos, temperature média
-- Cache agressivo para manter velocidade
+Executor Qwen2:7b DEFINITIVO - Performance + Formatação Rica Original
+- Configurações otimizadas específicas para cada fase
+- Fallback inteligente garantindo mensagem SEMPRE
+- Cache agressivo para máxima performance
+- Timeout escalonado: decisão rápida, apresentação generosa
 """
 
-import time
+from app.adaptadores.cliente_negocio import obter_prompt_por_nome, listar_exemplos_prompt
+from app.adaptadores.interface_llm import completar_para_json
+from app.validadores.modelos import validar_json_contra_schema, carregar_schema
+import yaml
 import json
 import httpx
-import yaml
-import hashlib
-from typing import Dict, Optional
-
-# Imports existentes
-from app.adaptadores.cliente_negocio import obter_prompt_por_nome, listar_exemplos_prompt
-from app.validadores.modelos import validar_json_contra_schema, carregar_schema
+import time
 from app.config.settings import config
-
-# Reutiliza cache
-from app.servicos.executor_fallback_inteligente import (
-    CACHE_PROMPTS, CACHE_RESPOSTAS_LLM, CACHE_TTL,
-    hash_prompt, get_prompt_cached_super, decidir_por_heuristica
-)
 
 API_NEGOCIO_URL = config.API_NEGOCIO_URL.rstrip("/")
 
-def executar_regras_qwen2_otimizado(mensagem: dict | str) -> dict:
+# ===== CACHE AGRESSIVO =====
+_cache_prompts = {}
+_cache_exemplos = {}
+_cache_decisoes = {}  # Cache de decisões por hash de mensagem
+
+def _get_cache_key(texto: str) -> str:
+    """Gera chave de cache baseada no texto"""
+    import hashlib
+    return hashlib.md5(texto.encode()).hexdigest()[:12]
+
+def _buscar_prompt_cache(nome: str, espaco: str, versao: int) -> tuple:
+    """Busca prompt e exemplos do cache ou da API"""
+    cache_key = f"{nome}_{espaco}_{versao}"
+    
+    if cache_key not in _cache_prompts:
+        print(f"🔄 Cache MISS para {cache_key} - buscando...")
+        p = obter_prompt_por_nome(nome=nome, espaco=espaco, versao=versao)
+        exemplos = listar_exemplos_prompt(p["id"])
+        _cache_prompts[cache_key] = p
+        _cache_exemplos[cache_key] = exemplos
+        print(f"✅ Cache populado para {cache_key}")
+    else:
+        print(f"⚡ Cache HIT para {cache_key}")
+    
+    return _cache_prompts[cache_key], _cache_exemplos[cache_key]
+
+def executar_regras_do_manifesto(mensagem: dict | str) -> dict:
     """
-    Executor otimizado com qwen2:7b configurado especificamente para cada fase
+    Orquestrador Qwen2:7b Definitivo - Duas Fases Otimizadas
     """
-    start_time = time.time()
+    inicio = time.time()
     
     if isinstance(mensagem, str):
         mensagem = {"texto": mensagem, "sessao_id": "anon"}
     
-    try:
-        with open("app/config/model_manifest.yml", encoding="utf-8") as f:
-            manifesto = yaml.safe_load(f)
-        
-        for regra in manifesto["regras"]:
-            if regra["action"] == "decisao_llm":
-                resultado = processar_decisao_qwen2_otimizado(mensagem, regra, manifesto)
-                
-                tempo_total = time.time() - start_time
-                print(f"🚀 Tempo QWEN2 OTIMIZADO: {tempo_total:.2f}s")
-                
-                if isinstance(resultado, dict):
-                    resultado["_performance"] = {
-                        "tempo_resposta_ms": round(tempo_total * 1000, 2),
-                        "versao": "qwen2_otimizado_v1",
-                        "modelo_decisao": "qwen2:7b",
-                        "modelo_apresentacao": "qwen2:7b"
-                    }
-                
-                return resultado
+    with open("app/config/model_manifest.yml", encoding="utf-8") as f:
+        manifesto = yaml.safe_load(f)
     
-        return {"erro": "Nenhuma regra válida encontrada no manifesto."}
-        
-    except Exception as e:
-        return {"erro": f"Erro interno: {str(e)}"}
+    for regra in manifesto["regras"]:
+        if regra["action"] == "decisao_llm":
+            resultado = _processar_qwen2_otimizado(mensagem, regra, manifesto)
+            tempo_total = time.time() - inicio
+            print(f"🚀 Tempo QWEN2 DEFINITIVO: {tempo_total:.2f}s")
+            return resultado
+    
+    return {"erro": "Nenhuma regra válida encontrada no manifesto."}
 
-def processar_decisao_qwen2_otimizado(mensagem: dict, regra: dict, manifesto: dict) -> dict:
-    """
-    Processamento com qwen2:7b otimizado para cada fase
-    """
+def _processar_qwen2_otimizado(mensagem: dict, regra: dict, manifesto: dict) -> dict:
+    """Pipeline de 2 fases com Qwen2:7b otimizado"""
+    
+    # ===== FASE 1: DECISÃO ULTRA-RÁPIDA =====
+    print("⚡ Fase 1: Decisão rápida com Qwen2:7b...")
+    
     try:
-        # 1. FASE DECISÃO: Qwen2:7b rápido (5s, poucos exemplos)
-        print("⚡ Fase 1: Decisão rápida com Qwen2:7b...")
+        decisao = _executar_decisao_otimizada(mensagem, regra)
         
-        prompt_data = get_prompt_cached_super(
-            nome=regra["prompt"],
-            espaco=regra["espaco_prompt"], 
-            versao=str(regra["versao_prompt"])
-        )
-        
-        if not prompt_data:
-            return {"erro": "Prompt não encontrado"}
-        
-        # Decisão com configurações rápidas
-        entrada_usuario = mensagem["texto"]
-        cache_hash = hash_prompt(prompt_data["template"], entrada_usuario, 2)  # Força apenas 2 exemplos
-        
-        decisao = completar_com_qwen2_configurado(
-            prompt_data["template_otimizado"], 
-            entrada_usuario, 
-            cache_hash,
-            config_type="decisao",
-            exemplos=prompt_data["exemplos"][:2]  # Apenas 2 exemplos
-        )
-        
-        # Fallback heurística se falhar
-        if decisao.get("erro") or not decisao.get("tool_name"):
-            print("🎯 Qwen2 decisão falhou - usando heurística")
-            decisao = decidir_por_heuristica(entrada_usuario)
-        
-        # Validação
-        schema = carregar_schema(regra["schema"])
-        if not validar_json_contra_schema(decisao, schema):
-            decisao = decidir_por_heuristica(entrada_usuario)
-        
-        # 2. FASE EXECUÇÃO API
+        if "erro" in decisao:
+            return decisao
+            
+        # ===== FASE 2: EXECUÇÃO DA API =====
         print("📡 Fase 2: Executando API...")
         tool_name = decisao.get("tool_name")
         
         if tool_name == "api_call":
-            return executar_api_call_qwen2(decisao.get("parameters", {}), mensagem["sessao_id"])
+            return _executar_api_call(decisao.get("parameters", {}), mensagem["sessao_id"])
             
         elif tool_name == "api_call_with_presentation":
-            # Executa API
-            json_resultado = executar_api_call_qwen2(decisao.get("parameters", {}), mensagem["sessao_id"])
+            json_resultado = _executar_api_call(decisao.get("parameters", {}), mensagem["sessao_id"])
+            return _apresentar_resultado_definitivo(json_resultado, mensagem["texto"], decisao.get("parameters", {}))
             
-            # 3. FASE APRESENTAÇÃO: Qwen2:7b completo (10s, exemplos completos)
-            return aplicar_apresentacao_qwen2_rica(
-                json_resultado, 
-                mensagem["texto"], 
-                decisao.get("parameters", {}),
-                mensagem["sessao_id"]
-            )
-                
         else:
             return {"erro": f"Ferramenta não reconhecida: {tool_name}"}
             
     except Exception as e:
-        return {"erro": f"Erro no processamento qwen2: {str(e)}"}
+        return {"erro": f"Erro interno definitivo: {str(e)}"}
 
-def completar_com_qwen2_configurado(template_compilado: str, entrada_usuario: str, cache_hash: str,
-                                   config_type: str = "decisao", exemplos: list = None) -> dict:
-    """
-    Qwen2:7b com configurações específicas por tipo de tarefa
-    """
+def _executar_decisao_otimizada(mensagem: dict, regra: dict) -> dict:
+    """Executa decisão com cache e configuração otimizada"""
     
-    # Verifica cache
-    if cache_hash in CACHE_RESPOSTAS_LLM:
-        entry = CACHE_RESPOSTAS_LLM[cache_hash]
-        if time.time() - entry["timestamp"] < CACHE_TTL:
-            print(f"⚡ Cache HIT - Qwen2 {config_type}")
-            return entry["resposta"]
+    # Verifica cache de decisão
+    cache_key = _get_cache_key(mensagem["texto"])
+    if cache_key in _cache_decisoes:
+        print(f"⚡ Cache HIT para decisão - reuso instantâneo")
+        return _cache_decisoes[cache_key]
     
-    # Monta prompt com exemplos limitados se necessário
-    if config_type == "decisao" and exemplos:
-        # Para decisão: usa template otimizado simples
-        prompt_final = template_compilado.replace("{ENTRADA_USUARIO}", entrada_usuario)
-    else:
-        # Para apresentação: monta prompt completo
-        prompt_final = montar_prompt_completo(template_compilado, entrada_usuario, exemplos or [])
+    # Busca prompt do cache
+    p, exemplos = _buscar_prompt_cache(
+        nome=regra["prompt"], 
+        espaco=regra["espaco_prompt"], 
+        versao=regra["versao_prompt"]
+    )
+    
+    # Limita exemplos para velocidade máxima
+    exemplos_limitados = exemplos[:2] if len(exemplos) > 2 else exemplos
+    if len(exemplos) > len(exemplos_limitados):
+        print(f"⚡ Exemplos limitados: {len(exemplos)} → {len(exemplos_limitados)}")
+    
+    # Configuração ultra-otimizada para decisão
+    decisao = _completar_qwen2_configurado(
+        sistema=p["template"],
+        entrada_usuario=mensagem["texto"],
+        exemplos=exemplos_limitados,
+        config_type="decisao"
+    )
+
+    # Valida estrutura da decisão
+    schema = carregar_schema(regra["schema"])
+    if not validar_json_contra_schema(decisao, schema):
+        return {"erro": "Decisão do LLM inválida. Tente reformular a mensagem."}
+    
+    # Salva no cache
+    _cache_decisoes[cache_key] = decisao
+    
+    return decisao
+
+def _completar_qwen2_configurado(sistema: str, entrada_usuario: str, exemplos: list, config_type: str) -> dict:
+    """LLM Qwen2:7b com configurações específicas por tipo de tarefa"""
     
     # Configurações por tipo de tarefa
     if config_type == "decisao":
-        timeout = 5
+        timeout = 8  # Aumentado de 5s → 8s
         max_tokens = 200
-        temperature = 0.05  # Muito baixo para consistência
+        temperature = 0.01  # Ultra baixo para consistência máxima
         print(f"🤖 Qwen2 DECISÃO (timeout: {timeout}s, tokens: {max_tokens})...")
-    else:  # apresentacao
-        timeout = 20  # AUMENTADO de 10s para 20s
-        max_tokens = 600  # REDUZIDO de 800 para 600 (mais rápido)
-        temperature = 0.15  # Mais criativo para apresentação
+    elif config_type == "apresentacao":
+        timeout = 25  # Aumentado de 20s → 25s 
+        max_tokens = 500  # Reduzido de 600 → 500 para processar mais rápido
+        temperature = 0.3   # Aumentado para mais criatividade
         print(f"🎨 Qwen2 APRESENTAÇÃO (timeout: {timeout}s, tokens: {max_tokens})...")
-    
+    else:
+        timeout = 15
+        max_tokens = 400
+        temperature = 0.1
+        print(f"🔧 Qwen2 GENÉRICO (timeout: {timeout}s, tokens: {max_tokens})...")
+
+    # Monta prompt com exemplos limitados para velocidade
+    partes = [sistema.strip()]
+    for ex in (exemplos or []):
+        partes.append("Exemplo de entrada:\n" + (ex.get("exemplo_input") or "").strip())
+        partes.append("Exemplo de saída (JSON):\n" + (ex.get("exemplo_output_json") or "").strip())
+    partes.append("Entrada do usuário:\n" + (entrada_usuario or "").strip())
+    prompt_texto = "\n\n".join(partes)
+
+    # Executa com timeout específico
     try:
-        with httpx.Client(timeout=timeout) as client:
-            response = client.post(
-                f"{config.OLLAMA_HOST}/api/generate",
-                json={
-                    "model": "qwen2:7b",
-                    "prompt": prompt_final,
-                    "format": "json",
-                    "stream": False,
-                    "options": {
-                        "temperature": temperature,
-                        "top_p": 0.9,
-                        "num_predict": max_tokens,
-                        "stop": ["```", "\n\n"] if config_type == "decisao" else ["```"]
-                    }
+        resp = httpx.post(
+            f"{config.OLLAMA_HOST.rstrip('/')}/api/generate",
+            json={
+                "model": config.OLLAMA_MODEL_NAME,
+                "prompt": prompt_texto,
+                "format": "json",
+                "stream": False,
+                "options": {
+                    "temperature": temperature,
+                    "num_predict": max_tokens,
+                    "stop": ["```", "Exemplo", "###"]  # Para parar mais cedo
                 }
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                conteudo = data.get("response", "").strip()
-                
-                try:
-                    resultado = json.loads(conteudo)
-                    
-                    # Armazena no cache
-                    CACHE_RESPOSTAS_LLM[cache_hash] = {
-                        "resposta": resultado,
-                        "timestamp": time.time()
-                    }
-                    
-                    return resultado
-                    
-                except json.JSONDecodeError:
-                    # Tenta extrair JSON com regex
-                    import re
-                    json_match = re.search(r'\{.*\}', conteudo, re.DOTALL)
-                    if json_match:
-                        try:
-                            return json.loads(json_match.group())
-                        except:
-                            pass
-                    
-                    print(f"⚠️ Qwen2 {config_type} JSON inválido: {conteudo[:200]}...")
-                    return {"erro": f"qwen2_{config_type}_json_invalido"}
-    
-    except (httpx.TimeoutException, Exception) as e:
-        print(f"❌ Qwen2 {config_type} falhou: {e}")
-        return {"erro": f"qwen2_{config_type}_failed"}
-
-def montar_prompt_completo(template: str, entrada_usuario: str, exemplos: list) -> str:
-    """Monta prompt completo com exemplos para apresentação rica"""
-    partes = [template.strip()]
-    
-    # Adiciona exemplos completos para apresentação rica
-    for i, ex in enumerate(exemplos):
-        input_ex = ex.get("exemplo_input", "").strip()
-        output_ex = ex.get("exemplo_output_json", "").strip()
+            },
+            timeout=timeout
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        conteudo = data.get("response") or data.get("output") or ""
+        return json.loads(conteudo)
         
-        if input_ex and output_ex:
-            partes.append(f"Exemplo {i+1}:")
-            partes.append(f"Input: {input_ex}")
-            partes.append(f"Output: {output_ex}")
-    
-    partes.append(f"Entrada atual: {entrada_usuario}")
-    
-    return "\n\n".join(partes)
+    except httpx.TimeoutException:
+        print(f"❌ Qwen2 {config_type} falhou: timed out")
+        return {"erro": f"timeout_{config_type}"}
+    except json.JSONDecodeError:
+        print(f"❌ Qwen2 {config_type} falhou: JSON inválido")
+        return {"erro": f"json_invalido_{config_type}"}
+    except Exception as e:
+        print(f"❌ Qwen2 {config_type} falhou: {str(e)}")
+        return {"erro": f"erro_{config_type}"}
 
-def aplicar_apresentacao_qwen2_rica(json_resultado: dict, mensagem_original: str, 
-                                   params_api: dict, sessao_id: str) -> dict:
-    """
-    Apresentação rica usando Qwen2:7b com configurações otimizadas
-    """
+def _apresentar_resultado_definitivo(json_resultado: dict, mensagem_original: str, params_api: dict) -> dict:
+    """Apresentação rica com fallback GARANTIDO"""
     
     try:
         endpoint = params_api.get("endpoint", "")
-        prompt_apresentador = determinar_prompt_apresentador(endpoint, json_resultado)
+        prompt_apresentador = _determinar_prompt_apresentador(endpoint, json_resultado)
         
         if not prompt_apresentador:
             return json_resultado
         
         print("🎨 Aplicando apresentação rica com Qwen2:7b...")
         
-        # Busca prompt do apresentador
-        prompt_data = get_prompt_cached_super(prompt_apresentador, "autonomo", "1")
+        # Busca prompt do cache
+        p_apresentador, exemplos_apresentador = _buscar_prompt_cache(
+            nome=prompt_apresentador, espaco="autonomo", versao=1
+        )
         
-        if not prompt_data:
-            return json_resultado
+        # Limita exemplos para apresentação mais rápida
+        exemplos_limitados = exemplos_apresentador[:2] if len(exemplos_apresentador) > 2 else exemplos_apresentador
+        if len(exemplos_apresentador) > len(exemplos_limitados):
+            print(f"⚡ Exemplos limitados: {len(exemplos_apresentador)} → {len(exemplos_limitados)}")
         
-        # Contexto para apresentação
-        contexto_apresentacao = montar_contexto_apresentacao_rica(
+        contexto_apresentacao = _montar_contexto_apresentacao(
             mensagem_original, json_resultado, endpoint
         )
         
-        # Cache para apresentação
-        cache_hash = hash_prompt(
-            prompt_data["template"], 
-            contexto_apresentacao, 
-            len(prompt_data["exemplos"])
+        # Tenta apresentação rica com Qwen2:7b
+        resposta_conversacional = _completar_qwen2_configurado(
+            sistema=p_apresentador["template"],
+            entrada_usuario=contexto_apresentacao,
+            exemplos=exemplos_limitados,
+            config_type="apresentacao"
         )
         
-        # Qwen2:7b configurado para apresentação rica
-        resposta_conversacional = completar_com_qwen2_configurado(
-            prompt_data["template"],
-            contexto_apresentacao,
-            cache_hash,
-            config_type="apresentacao",
-            exemplos=prompt_data["exemplos"]  # Exemplos completos
-        )
+        # Se funcionou, retorna apresentação rica
+        if "erro" not in resposta_conversacional:
+            print("✅ Apresentação rica gerada com sucesso!")
+            
+            # Salva contexto se necessário
+            _salvar_contexto_se_necessario(params_api, resposta_conversacional, mensagem_original)
+            
+            return {
+                "mensagem": resposta_conversacional.get("mensagem", "Ops, não consegui processar isso..."),
+                "tipo": resposta_conversacional.get("tipo", "apresentacao"),
+                "dados_originais": json_resultado,
+                "modelo_apresentacao": "qwen2_rica"
+            }
         
-        if "erro" in resposta_conversacional:
-            print("⚠️ Apresentação rica falhou, usando fallback estruturado...")
-            return aplicar_fallback_estruturado(json_resultado, mensagem_original, endpoint)
-        
-        # Salva contexto em background
-        if sessao_id and sessao_id != "anon":
-            contexto_estruturado = resposta_conversacional.get("contexto_estruturado", {})
-            if contexto_estruturado and contexto_estruturado.get("produtos"):
-                salvar_contexto_background_qwen2(
-                    sessao_id, contexto_estruturado, mensagem_original,
-                    resposta_conversacional.get("mensagem", "")
-                )
-        
-        resultado_final = {
-            "mensagem": resposta_conversacional.get("mensagem", "Resposta processada com sucesso!"),
-            "tipo": resposta_conversacional.get("tipo", "apresentacao_rica_qwen2"),
-            "dados_originais": json_resultado,
-            "usou_llm_apresentacao": True
-        }
-        
-        # Inclui contexto estruturado se presente
-        if resposta_conversacional.get("contexto_estruturado"):
-            resultado_final["contexto_estruturado"] = resposta_conversacional["contexto_estruturado"]
-        
-        return resultado_final
+        # Se falhou, usa fallback estruturado
+        print("⚠️ Apresentação rica falhou, usando fallback estruturado...")
+        return _aplicar_fallback_estruturado_definitivo(json_resultado, mensagem_original, endpoint)
         
     except Exception as e:
-        print(f"Erro na apresentação Qwen2: {e}")
-        return json_resultado
+        print(f"❌ Erro na apresentação: {e}")
+        return _aplicar_fallback_estruturado_definitivo(json_resultado, mensagem_original, endpoint)
 
-def aplicar_fallback_estruturado(json_resultado: dict, mensagem_original: str, endpoint: str) -> dict:
-    """Fallback estruturado quando LLM apresentação falha - garante mensagem sempre"""
+def _aplicar_fallback_estruturado_definitivo(json_resultado: dict, mensagem_original: str, endpoint: str) -> dict:
+    """Fallback estruturado DEFINITIVO - garante mensagem SEMPRE com IDs numerados"""
+    
+    print("🛡️ Aplicando fallback estruturado definitivo...")
     
     if "/produtos/busca" in endpoint:
         resultados = json_resultado.get("resultados", [])
+        status_busca = json_resultado.get("status_busca", "sucesso")
         
         if not resultados:
-            return {
-                "mensagem": f"Não encontrei produtos para '{mensagem_original}'. Tente outro termo de busca!",
-                "tipo": "busca_vazia_fallback",
-                "dados_originais": json_resultado
-            }
-        
-        # Cria apresentação estruturada com IDs
-        emoji = "🍫" if any(palavra in mensagem_original.lower() for palavra in ["chocolate", "nescau", "achocolatado"]) else "🛒"
-        
-        mensagem_partes = [f"Encontrei {len(resultados)} produtos para '{mensagem_original}'! {emoji}"]
-        mensagem_partes.append("")
-        
-        produtos_numerados = []
-        
-        for produto in resultados:
-            nome_produto = produto.get("descricaoweb") or produto.get("descricao", "Produto")
-            itens = produto.get("itens", [])
+            mensagem = "Não encontrei produtos para sua busca. 🔍 Tente termos diferentes ou mais gerais!"
+        else:
+            # Gera lista numerada com IDs diretos (formato original do git)
+            produtos_formatados = []
+            contador = 1
+            contexto_produtos = []
             
-            if not itens:
-                continue
+            for produto in resultados[:5]:  # Limita a 5 para não ficar muito longo
+                itens = produto.get("itens", [])
+                if itens:
+                    item_principal = itens[0]  # Pega primeiro item disponível
+                    preco = item_principal.get("preco_oferta") or item_principal.get("preco")
+                    
+                    if preco:
+                        # Formato original: ID direto + descrição + preço
+                        linha = f"{contador}. ID {item_principal['id']} - {produto['descricao']} - R$ {preco:.2f}"
+                        produtos_formatados.append(linha)
+                        
+                        # Salva para contexto
+                        contexto_produtos.append({
+                            "item_id": item_principal["id"],
+                            "descricao": produto["descricao"],
+                            "preco": preco,
+                            "posicao": contador
+                        })
+                        contador += 1
             
-            mensagem_partes.append(nome_produto.upper())
-            
-            for item in itens:
-                item_id = item.get("id")
-                preco = item.get("poferta") or item.get("pvenda")
-                unidade = item.get("unidade", "UN")
-                qtunit = item.get("qtunit", 1)
+            if produtos_formatados:
+                emoji_inicial = "🍫" if "nescau" in mensagem_original.lower() else "🛒"
+                mensagem = f"Encontrei essas opções para você! {emoji_inicial}\n\n" + "\n".join(produtos_formatados)
+                mensagem += f"\n\n💡 Para adicionar, diga: 'adicionar ID [número] ao carrinho'"
                 
-                if not item_id or not preco or preco <= 0:
-                    continue
-                
-                desc_quantidade = f"Com {qtunit} {'Unidade' if unidade == 'UN' else unidade}{'s' if qtunit > 1 else ''}"
-                mensagem_partes.append(f"{item_id} R$ {preco:.2f} - {desc_quantidade}")
-                
-                produtos_numerados.append({
-                    "item_id": item_id,
-                    "produto_nome": nome_produto,
-                    "preco": float(preco),
-                    "unidade": unidade,
-                    "quantidade_pacote": qtunit
-                })
-            
-            mensagem_partes.append("")
-        
-        mensagem_partes.append("💡 Digite o ID do produto desejado!")
+                # Contexto estruturado para referências futuras
+                contexto_estruturado = {"produtos": contexto_produtos}
+            else:
+                mensagem = "Encontrei produtos mas sem informações de preço disponíveis. 💰"
+                contexto_estruturado = {}
         
         return {
-            "mensagem": "\n".join(mensagem_partes),
-            "tipo": "busca_fallback_estruturado",
-            "contexto_estruturado": {"produtos": produtos_numerados},
-            "dados_originais": json_resultado
+            "mensagem": mensagem,
+            "tipo": "busca_produtos",
+            "dados_originais": json_resultado,
+            "modelo_apresentacao": "fallback_estruturado",
+            "contexto_estruturado": contexto_estruturado
         }
     
     elif "/carrinhos/" in endpoint:
         if endpoint.endswith("/itens"):
-            return {
-                "mensagem": "✅ Item adicionado ao carrinho com sucesso! 🛒\n\nSua compra foi registrada. Quer ver o carrinho completo?",
-                "tipo": "carrinho_adicionado_fallback",
-                "dados_originais": json_resultado
-            }
-        
-        itens = json_resultado.get("itens", [])
-        valor_total = json_resultado.get("valor_total", 0)
-        
-        if not itens:
-            return {
-                "mensagem": "Seu carrinho está vazio! 🛒\n\nQue tal buscar alguns produtos? Digite o que você precisa!",
-                "tipo": "carrinho_vazio_fallback",
-                "dados_originais": json_resultado
-            }
-        
-        mensagem_partes = [f"🛒 Seu Carrinho ({len(itens)} {'item' if len(itens) == 1 else 'itens'})"]
-        mensagem_partes.append("")
-        
-        for i, item in enumerate(itens, 1):
-            nome = item.get("descricao_produto", "Produto")
-            quantidade = item.get("quantidade", 1)
-            preco_unit = item.get("preco_unitario_registrado", 0)
-            subtotal = item.get("subtotal", 0)
-            
-            mensagem_partes.append(f"{i}. {nome}")
-            mensagem_partes.append(f"   Qtd: {quantidade}x R$ {preco_unit:.2f} = R$ {subtotal:.2f}")
-            mensagem_partes.append("")
-        
-        mensagem_partes.append("=" * 40)
-        mensagem_partes.append(f"💰 TOTAL: R$ {valor_total:.2f}")
+            # Item adicionado
+            mensagem = "Item adicionado ao carrinho! 🛒✨ Sua compra foi registrada com sucesso."
+        else:
+            # Ver carrinho
+            itens = json_resultado.get("itens", [])
+            if not itens:
+                mensagem = "Seu carrinho está vazio! 🛒💨 Que tal adicionar alguns produtos?"
+            else:
+                total = json_resultado.get("valor_total", 0)
+                mensagem = f"Seu carrinho tem {len(itens)} itens totalizando R$ {total:.2f}! 🛒💰"
         
         return {
-            "mensagem": "\n".join(mensagem_partes),
-            "tipo": "carrinho_fallback_estruturado", 
-            "dados_originais": json_resultado
+            "mensagem": mensagem,
+            "tipo": "carrinho",
+            "dados_originais": json_resultado,
+            "modelo_apresentacao": "fallback_estruturado"
         }
     
-    # Fallback genérico
-    return {
-        "mensagem": "Operação realizada com sucesso! Como posso ajudar mais?",
-        "tipo": "fallback_generico",
-        "dados_originais": json_resultado
-    }
+    else:
+        # Endpoint genérico
+        mensagem = "Operação realizada com sucesso! ✅"
+        return {
+            "mensagem": mensagem,
+            "tipo": "generico",
+            "dados_originais": json_resultado,
+            "modelo_apresentacao": "fallback_estruturado"
+        }
 
-# Funções auxiliares reutilizadas
-def executar_api_call_qwen2(params: dict, sessao_id: str) -> dict:
-    """Reutiliza execução de API"""
-    from app.servicos.executor_fallback_inteligente import executar_api_call_rapido
-    return executar_api_call_rapido(params, sessao_id)
+def _salvar_contexto_se_necessario(params_api: dict, resposta_conversacional: dict, mensagem_original: str):
+    """Salva contexto no banco se tiver produtos numerados"""
+    try:
+        sessao_id = params_api.get("sessao_id") or "anon"
+        if sessao_id == "anon":
+            return
+            
+        contexto_estruturado = resposta_conversacional.get("contexto_estruturado", {})
+        if contexto_estruturado and contexto_estruturado.get("produtos"):
+            payload = {
+                "tipo_contexto": "busca_numerada",
+                "contexto_estruturado": contexto_estruturado,
+                "mensagem_original": mensagem_original,
+                "resposta_apresentada": resposta_conversacional.get("mensagem", "")
+            }
+            
+            response = httpx.post(f"{API_NEGOCIO_URL}/contexto/{sessao_id}", json=payload, timeout=5.0)
+            
+            if response.is_success:
+                print(f"✅ Contexto salvo para sessão {sessao_id}")
+            else:
+                print(f"❌ Erro ao salvar contexto: {response.status_code}")
+                
+    except Exception as e:
+        print(f"❌ Erro ao salvar contexto: {e}")
 
-def determinar_prompt_apresentador(endpoint: str, json_resultado: dict) -> Optional[str]:
-    """Reutiliza determinação de prompt"""
-    if "erro" in json_resultado:
+# ===== FUNÇÕES AUXILIARES (mantidas) =====
+
+def _executar_api_call(params: dict, sessao_id: str) -> dict:
+    """Executa chamada HTTP genérica com contexto"""
+    endpoint = params.get("endpoint", "")
+    method = params.get("method", "GET").upper()
+    body = params.get("body", {})
+    
+    # Endpoint especial para conversa direta
+    if endpoint == "/chat/resposta":
+        mensagem = body.get("mensagem", "Olá! Como posso ajudá-lo?")
+        return {"mensagem": mensagem, "tipo": "conversacional"}
+    
+    # Endpoint para processamento de contexto
+    if endpoint == "/chat/contexto":
+        return _processar_contexto_via_prompt(body, sessao_id)
+    
+    # Substitui {sessao_id} no endpoint se necessário
+    if "{sessao_id}" in endpoint:
+        if not sessao_id or sessao_id == "anon":
+            return {"erro": "Sessão necessária para esta operação."}
+        endpoint = endpoint.replace("{sessao_id}", sessao_id)
+    
+    # Monta a URL completa para APIs reais
+    url = f"{API_NEGOCIO_URL}{endpoint}"
+    
+    try:
+        response = _fazer_request_http(url, method, body)
+        
+        if response.get("success"):
+            return response.get("data", {})
+        
+        if response.get("status_code") in [400, 422]:
+            return _tentar_reparo_automatico(params, response, sessao_id)
+        
+        return {"erro": f"API retornou erro {response.get('status_code')}: {response.get('error')}"}
+        
+    except Exception as e:
+        return {"erro": f"Falha na comunicação com API: {str(e)}"}
+
+def _processar_contexto_via_prompt(body: dict, sessao_id: str) -> dict:
+    """Processa referência do usuário usando contexto salvo - com IDs diretos"""
+    try:
+        mensagem_contexto = body.get("mensagem_contexto", "")
+        
+        # Buscar contexto salvo do banco
+        contexto_banco = _buscar_contexto_do_banco(sessao_id)
+        contexto_anterior = {
+            "contexto": contexto_banco.get("contexto_estruturado", {}),
+            "tipo": contexto_banco.get("tipo_contexto", "nenhum")
+        }
+        
+        # Interpretação por ID direto (mais simples e confiável)
+        import re
+        
+        # Primeiro tenta extrair ID numérico direto
+        id_matches = re.findall(r'\b(\d{4,6})\b', mensagem_contexto)
+        
+        if id_matches:
+            item_id_referenciado = int(id_matches[0])
+            quantidade_match = re.search(r'(\d+)\s*(unidades?|do|da|vezes?)', mensagem_contexto)
+            quantidade = int(quantidade_match.group(1)) if quantidade_match else 1
+            
+            # Buscar produto pelo ID no contexto
+            produtos = contexto_anterior.get("contexto", {}).get("produtos", [])
+            produto_encontrado = None
+            
+            for produto in produtos:
+                if produto.get("item_id") == item_id_referenciado:
+                    produto_encontrado = produto
+                    break
+            
+            if produto_encontrado:
+                print(f"✅ Mapeamento direto: ID {item_id_referenciado} encontrado no contexto")
+                
+                # Adicionar ao carrinho com ID direto
+                params_api = {
+                    "endpoint": "/carrinhos/{sessao_id}/itens",
+                    "method": "POST",
+                    "body": {
+                        "item_id": item_id_referenciado,
+                        "quantidade": quantidade,
+                        "codfilial": 2
+                    }
+                }
+                return _executar_api_call(params_api, sessao_id)
+            else:
+                return {"erro": f"ID {item_id_referenciado} não encontrado no contexto atual"}
+        
+        # Fallback: não conseguiu processar
+        return {"erro": "Não consegui identificar qual produto você quer. Pode usar o ID direto do produto?"}
+        
+    except Exception as e:
+        return {"erro": f"Erro no processamento: {str(e)}"}
+
+def _determinar_prompt_apresentador(endpoint: str, json_resultado: dict) -> str:
+    """Determina qual prompt de apresentação usar"""
+    if "erro" in json_resultado or json_resultado.get("success") is False:
         return "prompt_apresentador_erro"
     if "/produtos/busca" in endpoint:
         return "prompt_apresentador_busca"
     if "/carrinhos/" in endpoint:
         return "prompt_apresentador_carrinho"
-    return None
+    return "prompt_apresentador_busca"
 
-def montar_contexto_apresentacao_rica(mensagem_original: str, json_resultado: dict, endpoint: str) -> str:
-    """Contexto rico para apresentação"""
+def _montar_contexto_apresentacao(mensagem_original: str, json_resultado: dict, endpoint: str) -> str:
+    """Monta o contexto que será enviado para o LLM Apresentador"""
     if "/produtos/busca" in endpoint:
         resultados = json_resultado.get("resultados", [])
         status_busca = json_resultado.get("status_busca", "sucesso")
@@ -449,30 +492,78 @@ mensagem_original: "{mensagem_original}" """
 resultado_api: {json.dumps(json_resultado, ensure_ascii=False)}
 endpoint: "{endpoint}" """
 
-def salvar_contexto_background_qwen2(sessao_id: str, contexto_estruturado: dict, 
-                                    mensagem_original: str, resposta_apresentada: str):
-    """Salva contexto em background"""
+def _fazer_request_http(url: str, method: str, body: dict) -> dict:
+    """Executa a requisição HTTP e retorna um dicionário padronizado"""
     try:
-        payload = {
-            "tipo_contexto": "busca_qwen2_rica",
-            "contexto_estruturado": contexto_estruturado,
-            "mensagem_original": mensagem_original,
-            "resposta_apresentada": resposta_apresentada
+        if method == "GET":
+            resp = httpx.get(url, timeout=15.0)
+        elif method == "POST":
+            resp = httpx.post(url, json=body, timeout=15.0)
+        elif method == "PUT":
+            resp = httpx.put(url, json=body, timeout=15.0)
+        elif method == "DELETE":
+            resp = httpx.delete(url, timeout=15.0)
+        else:
+            return {"success": False, "error": f"Método HTTP não suportado: {method}"}
+        
+        if resp.is_success:
+            return {"success": True, "data": resp.json()}
+        
+        try:
+            error_data = resp.json()
+        except:
+            error_data = {"detail": resp.text}
+            
+        return {
+            "success": False, 
+            "status_code": resp.status_code,
+            "error": error_data
         }
-        httpx.post(f"{API_NEGOCIO_URL}/contexto/{sessao_id}", json=payload, timeout=3.0)
-    except:
-        pass
+        
+    except httpx.TimeoutException:
+        return {"success": False, "error": "Timeout na comunicação com API"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
-def get_stats_qwen2_otimizado() -> dict:
-    """Stats do sistema Qwen2 otimizado"""
-    return {
-        "cache_prompts": len(CACHE_PROMPTS),
-        "cache_llm_responses": len(CACHE_RESPOSTAS_LLM),
-        "version": "qwen2_otimizado_v1",
-        "modelo_unico": "qwen2:7b",
-        "configuracoes": {
-            "decisao": "5s timeout, 200 tokens, temp 0.05, 2 exemplos",
-            "apresentacao": "10s timeout, 800 tokens, temp 0.15, exemplos completos"
-        },
-        "performance_target": "3-5s com formatação original completa"
-    }
+def _tentar_reparo_automatico(params_originais: dict, erro_response: dict, sessao_id: str) -> dict:
+    """Ciclo de reparo automático"""
+    try:
+        p_reparo, exemplos_reparo = _buscar_prompt_cache(nome="prompt_api_repair", espaco="autonomo", versao=1)
+        
+        contexto_reparo = f"""endpoint_original: {params_originais.get('endpoint')}
+method_original: {params_originais.get('method')}
+body_original: {json.dumps(params_originais.get('body', {}))}
+erro_retornado: {json.dumps(erro_response.get('error', {}))}
+mensagem_usuario: (contexto da mensagem original)"""
+
+        correcao = _completar_qwen2_configurado(
+            sistema=p_reparo["template"],
+            entrada_usuario=contexto_reparo,
+            exemplos=exemplos_reparo,
+            config_type="generico"
+        )
+        
+        params_corrigidos = params_originais.copy()
+        params_corrigidos["body"] = correcao.get("body_corrigido", params_originais.get("body", {}))
+        
+        return _executar_api_call(params_corrigidos, sessao_id)
+        
+    except Exception as e:
+        return {"erro": f"Reparo automático falhou: {str(e)}. Erro original: {erro_response.get('error')}"}
+    
+def _buscar_contexto_do_banco(sessao_id: str) -> dict:
+    """Busca contexto do banco via API de negócio"""
+    try:
+        response = httpx.get(f"{API_NEGOCIO_URL}/contexto/{sessao_id}", timeout=10.0)
+        
+        if response.is_success:
+            contexto = response.json()
+            print(f"✅ Contexto recuperado para sessão {sessao_id}")
+            return contexto
+        else:
+            print(f"ℹ️ Nenhum contexto encontrado para sessão {sessao_id}")
+            return {"contexto_estruturado": {}}
+            
+    except Exception as e:
+        print(f"❌ Erro ao buscar contexto: {e}")
+        return {"contexto_estruturado": {}}

@@ -1,0 +1,8 @@
+RELATÓRIO DE DIAGNÓSTICO DOS PROMPTS
+==================================================
+Data: 2025-08-27 11:26:43
+Total de problemas: 3
+
+1. [MÉDIO] Falta exemplo de busca barato
+2. [MÉDIO] Falta exemplo de busca oferta
+3. [MÉDIO] Falta exemplo de adicionar item

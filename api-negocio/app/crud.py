@@ -11,6 +11,24 @@ import json    # ✅ ADICIONAR ESTA LINHA (usada em criar_log_interacao)
 # CRUD de Prompts e Unidades (SQL "cru", sem ORM)
 # ---------------------------------------------
 
+def _coerce_json(value) -> Any:
+    """Aceita TEXT (str) ou JSONB (dict/list) e devolve dict/list seguro."""
+    if value is None:
+        return {}
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            value = value.decode("utf-8", errors="ignore")
+        except Exception:
+            return {}
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except Exception:
+            return {}
+    return {}
+
 def get_prompt_ativo_por_nome_espaco_versao(
     db: Session, *, nome: str, espaco: str = "legacy", versao: str = "v1"
 ) -> Optional[Dict[str, Any]]:
@@ -484,8 +502,8 @@ def buscar_contexto_sessao(db: Session, sessao_id: str) -> Optional[Dict]:
     
     return {
         "tipo_contexto": result.tipo_contexto,
-        "contexto_estruturado": json.loads(result.contexto_estruturado),
+        "contexto_estruturado": _coerce_json(result.contexto_estruturado),
         "mensagem_original": result.mensagem_original,
         "resposta_apresentada": result.resposta_apresentada,
-        "criado_em": result.criado_em
+        "criado_em": result.criado_em,
     }

@@ -50,11 +50,12 @@ services:
     env_file: .env
     ports:
       - "8000:8000"
+      - "5678:5678"
     volumes:
       - ./gav-autonomo:/app
     restart: unless-stopped
     # ADICIONE A LINHA ABAIXO:
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: python -m debugpy --listen 0.0.0.0:5678 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   chatweb:
     container_name: bot_react_chatweb

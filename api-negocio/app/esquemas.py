@@ -131,3 +131,5 @@ class ContextoEntrada(BaseModel):
     contexto_estruturado: Dict[str, Any]
     mensagem_original: Optional[str] = None
     resposta_apresentada: Optional[str] = None
+    
+    
