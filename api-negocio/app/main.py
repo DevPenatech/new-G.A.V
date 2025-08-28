@@ -177,29 +177,27 @@ def admin_listar_exemplos_prompt(prompt_id: int, db: Session = Depends(get_db)):
     """
     return crud.get_prompt_exemplos(db, prompt_id=prompt_id)
 
-@app.post("/contexto/{sessao_id}", tags=["Contexto"], status_code=201)
-def endpoint_salvar_contexto(sessao_id: str, contexto: esquemas.ContextoEntrada, db: Session = Depends(get_db)):
-    """Salva contexto estruturado para uma sessão."""
-    contexto_id = crud.salvar_contexto_sessao(
-        db, 
-        sessao_id=sessao_id, 
-        tipo_contexto=contexto.tipo_contexto,
-        contexto_estruturado=contexto.contexto_estruturado,
-        mensagem_original=contexto.mensagem_original,
-        resposta_apresentada=contexto.resposta_apresentada
-    )
-    return {"contexto_id": contexto_id, "status": "contexto salvo"}
+@app.get("/contexto/{sessao_id}", tags=["Contexto"])
+def admin_get_prompt_por_nome(nome: str, espaco: str, versao: int, db: Session = Depends(get_db)):
+    """
+    Retorna um prompt ativo filtrando por nome + espaco + versao.
+    """
+    prompt = crud.get_prompt_por_nome_espaco_versao(db, nome=nome, espaco=espaco, versao=versao)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt não encontrado.")
+    return prompt
+
 
 @app.post("/contexto/{sessao_id}", tags=["Contexto"], status_code=201)
 def endpoint_salvar_contexto(sessao_id: str, contexto: esquemas.ContextoEntrada, db: Session = Depends(get_db)):
     """Salva contexto estruturado para uma sessão COM HASH QUERY"""
     
     # Gera hash da mensagem original se não fornecido
-    hash_query = contexto.hash_query if hasattr(contexto, 'hash_query') else None
+    hash_query = contexto.hash_query
     if not hash_query and contexto.mensagem_original:
         hash_query = gerar_hash_query(contexto.mensagem_original)
     
-    contexto_id = crud.salvar_contexto_sessao_com_hash(
+    contexto_id = crud.salvar_contexto_com_hash(
         db, 
         sessao_id=sessao_id, 
         tipo_contexto=contexto.tipo_contexto,
@@ -210,6 +208,7 @@ def endpoint_salvar_contexto(sessao_id: str, contexto: esquemas.ContextoEntrada,
     )
     
     return {"contexto_id": contexto_id, "hash_query": hash_query, "status": "contexto salvo"}
+
 
 @app.post("/admin/contextos/deduplicar", tags=["Admin"], status_code=200)
 def endpoint_deduplicar_contextos(
@@ -255,12 +254,11 @@ def endpoint_limpar_contextos_antigos(
 def endpoint_listar_contextos_recentes(
     sessao_id: str,
     limite: int = 5,
-    tipo: str = "busca_numerada_rica",
     db: Session = Depends(get_db)
 ):
     """Lista contextos mais recentes de uma sessão"""
     
-    contextos = crud.listar_contextos_recentes(db, sessao_id, tipo, limite)
+    contextos = crud.listar_contextos_recentes(db, sessao_id, limite)
     
     return contextos
 

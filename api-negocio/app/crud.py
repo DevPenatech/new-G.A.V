@@ -508,13 +508,12 @@ def buscar_contexto_sessao(db: Session, sessao_id: str) -> Optional[Dict]:
         "criado_em": result.criado_em,
     }
     
-    # api-negocio/app/crud.py - ADIÇÕES para hash_query
 
 # Adicionar estas funções ao arquivo crud.py existente:
 
-def salvar_contexto_sessao_com_hash(db: Session, sessao_id: str, tipo_contexto: str, 
-                                  contexto_estruturado: dict, mensagem_original: str = None,
-                                  resposta_apresentada: str = None, hash_query: str = None) -> int:
+def salvar_contexto_com_hash(db: Session, sessao_id: str, tipo_contexto: str, 
+                           contexto_estruturado: dict, mensagem_original: str = None,
+                           resposta_apresentada: str = None, hash_query: str = None) -> int:
     """Salva contexto estruturado com hash para deduplicação"""
     
     # Se for busca e não tiver hash, gera automaticamente
@@ -600,7 +599,7 @@ def limpar_contextos_sessao(db: Session, sessao_id: str, tipo_contexto: str, lim
     db.commit()
     return result.rowcount
 
-def listar_contextos_recentes(db: Session, sessao_id: str, tipo_contexto: str, limite: int = 5) -> List[Dict]:
+def listar_contextos_recentes(db: Session, sessao_id: str, limite: int = 5) -> List[Dict]:
     """Lista contextos mais recentes de uma sessão"""
     
     stmt = text("""
@@ -614,7 +613,6 @@ def listar_contextos_recentes(db: Session, sessao_id: str, tipo_contexto: str, l
             criado_em
         FROM contexto_sessoes 
         WHERE sessao_id = :sessao_id 
-        AND tipo_contexto = :tipo_contexto
         AND ativo = true
         ORDER BY criado_em DESC 
         LIMIT :limite;
@@ -622,7 +620,6 @@ def listar_contextos_recentes(db: Session, sessao_id: str, tipo_contexto: str, l
     
     result = db.execute(stmt, {
         "sessao_id": sessao_id,
-        "tipo_contexto": tipo_contexto,
         "limite": limite
     }).mappings().all()
     
@@ -634,39 +631,6 @@ def listar_contextos_recentes(db: Session, sessao_id: str, tipo_contexto: str, l
         contextos.append(contexto)
     
     return contextos
-
-def buscar_contexto_por_hash(db: Session, sessao_id: str, hash_query: str) -> Optional[Dict]:
-    """Busca contexto específico por hash"""
-    
-    stmt = text("""
-        SELECT 
-            id,
-            tipo_contexto,
-            contexto_estruturado,
-            mensagem_original,
-            resposta_apresentada,
-            hash_query,
-            criado_em
-        FROM contexto_sessoes 
-        WHERE sessao_id = :sessao_id 
-        AND hash_query = :hash_query
-        AND ativo = true
-        ORDER BY criado_em DESC 
-        LIMIT 1;
-    """)
-    
-    result = db.execute(stmt, {
-        "sessao_id": sessao_id,
-        "hash_query": hash_query
-    }).mappings().first()
-    
-    if not result:
-        return None
-    
-    contexto = dict(result)
-    contexto["contexto_estruturado"] = _coerce_json(contexto.get("contexto_estruturado"))
-    
-    return contexto
 
 def gerar_hash_query_sql(db: Session, query: str) -> str:
     """Gera hash usando função SQL (mais consistente)"""
@@ -686,31 +650,3 @@ def gerar_hash_query_sql(db: Session, query: str) -> str:
         query_normalizada = re.sub(r'\s+', ' ', query_normalizada).strip()
         
         return hashlib.md5(query_normalizada.encode('utf-8')).hexdigest()
-
-# Função para estatísticas de contextos (útil para debug)
-def get_estatisticas_contextos(db: Session, sessao_id: str) -> Dict:
-    """Retorna estatísticas dos contextos de uma sessão"""
-    
-    stmt = text("""
-        SELECT 
-            tipo_contexto,
-            COUNT(*) as total,
-            COUNT(DISTINCT hash_query) as hashes_unicos,
-            MAX(criado_em) as mais_recente,
-            MIN(criado_em) as mais_antigo
-        FROM contexto_sessoes 
-        WHERE sessao_id = :sessao_id 
-        AND ativo = true
-        GROUP BY tipo_contexto
-        ORDER BY mais_recente DESC;
-    """)
-    
-    result = db.execute(stmt, {"sessao_id": sessao_id}).mappings().all()
-    
-    estatisticas = {
-        "sessao_id": sessao_id,
-        "tipos": [dict(row) for row in result],
-        "total_geral": sum(row["total"] for row in result)
-    }
-    
-    return estatisticas

@@ -10,7 +10,7 @@ import json
 import httpx
 import time
 import re
-from app.servicos.hash_query_manager import salvar_contexto_com_hash
+import hashlib
 from app.config.settings import config
 
 API_NEGOCIO_URL = config.API_NEGOCIO_URL.rstrip("/")
@@ -339,7 +339,7 @@ def _apresentar_resultado_original(json_resultado: dict, mensagem_original: str,
         if sessao_id and sessao_id != "anon":
             contexto_estruturado = resposta_conversacional.get("contexto_estruturado", {})
             if contexto_estruturado and contexto_estruturado.get("produtos"):
-                salvar_contexto_com_hash(
+                _salvar_contexto_no_banco(
                     sessao_id, 
                     contexto_estruturado, 
                     mensagem_original, 
@@ -451,10 +451,96 @@ mensagem_usuario: (contexto da mensagem original)"""
         
     except Exception as e:
         return {"erro": f"Reparo automático falhou: {str(e)}. Erro original: {erro_response.get('error')}"}
+
+def gerar_hash_query(query: str) -> str:
+    """
+    Gera hash MD5 normalizado de uma query para deduplicação
     
+    Normalização:
+    - Remove espaços extras
+    - Converte para minúsculo  
+    - Padroniza verbos de busca ("buscar", "quero", "procurar" → "buscar")
+    - Remove artigos e preposições ("o", "a", "de", etc.)
+    """
+    if not query:
+        return ""
+    
+    # Normaliza texto
+    query_normalizada = query.lower().strip()
+    
+    # Padroniza verbos de busca
+    query_normalizada = re.sub(r'\b(buscar|quero|procurar|encontrar|tem)\b', 'buscar', query_normalizada)
+    
+    # Remove artigos e preposições
+    query_normalizada = re.sub(r'\b(o|a|os|as|um|uma|de|da|do|para|por)\b', '', query_normalizada)
+    
+    # Remove espaços extras
+    query_normalizada = re.sub(r'\s+', ' ', query_normalizada).strip()
+    
+    # Gera hash MD5
+    return hashlib.md5(query_normalizada.encode('utf-8')).hexdigest()
+
+def deduplicar_contextos_por_hash(sessao_id: str, hash_query: str, tipo_contexto: str):
+    """
+    Desativa contextos duplicados com mesmo hash (chama api-negocio se disponível)
+    """
+    try:
+        payload_dedup = {
+            "sessao_id": sessao_id,
+            "hash_query": hash_query,
+            "tipo_contexto": tipo_contexto
+        }
+        
+        response = httpx.post(
+            f"{API_NEGOCIO_URL}/admin/contextos/deduplicar",
+            json=payload_dedup,
+            timeout=5.0
+        )
+        
+        if response.is_success:
+            data = response.json()
+            removidos = data.get("contextos_removidos", 0)
+            if removidos > 0:
+                print(f"   🔄 Deduplicados {removidos} contextos duplicados")
+        # Se endpoint não existir, ignora silenciosamente
+        
+    except Exception:
+        # Não crítico - sistema continua funcionando sem deduplicação
+        pass
+
+def limpar_contextos_antigos(sessao_id: str, tipo_contexto: str, limite: int = 5):
+    """
+    Limpa contextos antigos, mantendo apenas os N mais recentes
+    """
+    try:
+        payload_limpeza = {
+            "sessao_id": sessao_id,
+            "tipo_contexto": tipo_contexto,
+            "limite": limite
+        }
+        
+        response = httpx.post(
+            f"{API_NEGOCIO_URL}/admin/contextos/limpar",
+            json=payload_limpeza,
+            timeout=5.0
+        )
+        
+        if response.is_success:
+            data = response.json()
+            removidos = data.get("contextos_removidos", 0)
+            if removidos > 0:
+                print(f"   🗑️ Removidos {removidos} contextos antigos")
+        # Se endpoint não existir, ignora silenciosamente
+        
+    except Exception:
+        # Não crítico - sistema continua funcionando sem limpeza
+        pass
+
+# 3. SUBSTITUA A FUNÇÃO _salvar_contexto_no_banco EXISTENTE POR ESTA:
+
 def _salvar_contexto_no_banco(sessao_id: str, contexto_estruturado: dict, mensagem_original: str, resposta_apresentada: str, tipo: str = "busca_numerada"):
     """
-    VERSÃO ATUALIZADA: Salva contexto com tipo específico
+    VERSÃO ATUALIZADA COM HASH: Salva contexto com deduplicação automática
     
     Tipos suportados:
     - 'busca_numerada' ou 'busca_numerada_rica': após busca de produtos
@@ -462,17 +548,40 @@ def _salvar_contexto_no_banco(sessao_id: str, contexto_estruturado: dict, mensag
     - 'item_adicionado': após adicionar item ao carrinho
     """
     try:
+        # 1. Gera hash da query (apenas para buscas)
+        hash_query = None
+        if tipo in ['busca_numerada', 'busca_numerada_rica'] and mensagem_original:
+            hash_query = gerar_hash_query(mensagem_original)
+            print(f"   📝 Hash gerado: {hash_query[:8]}... para '{mensagem_original}'")
+            
+            # 2. Deduplica contextos existentes com mesmo hash ANTES de salvar
+            if hash_query:
+                deduplicar_contextos_por_hash(sessao_id, hash_query, tipo)
+        
+        # 3. Monta payload para salvar
         payload = {
-            "tipo_contexto": tipo,  # ⚠️ PARÂMETRO DINÂMICO
+            "tipo_contexto": tipo,
             "contexto_estruturado": contexto_estruturado,
             "mensagem_original": mensagem_original,
             "resposta_apresentada": resposta_apresentada
         }
         
+        # Adiciona hash apenas se foi gerado (para buscas)
+        if hash_query:
+            payload["hash_query"] = hash_query
+        
+        # 4. Salva contexto
         response = httpx.post(f"{API_NEGOCIO_URL}/contexto/{sessao_id}", json=payload, timeout=10.0)
         
         if response.is_success:
             print(f"   ✅ Contexto '{tipo}' salvo para sessão {sessao_id}")
+            if hash_query:
+                print(f"   🔄 Hash {hash_query[:8]}... - deduplicação ativa")
+            
+            # 5. Limpa contextos antigos (apenas para buscas)
+            if tipo in ['busca_numerada', 'busca_numerada_rica']:
+                limpar_contextos_antigos(sessao_id, tipo)
+            
         else:
             print(f"   ❌ Erro ao salvar contexto: {response.status_code}")
             
@@ -480,18 +589,47 @@ def _salvar_contexto_no_banco(sessao_id: str, contexto_estruturado: dict, mensag
         print(f"   ❌ Erro ao salvar contexto: {e}")
 
 def _buscar_contexto_do_banco(sessao_id: str) -> dict:
-    """Busca contexto mais recente de uma sessão"""
+    """Busca contexto mais recente de uma sessão, aceitando resposta em lista ou objeto."""
     try:
-        response = httpx.get(f"{API_NEGOCIO_URL}/contexto/{sessao_id}", timeout=10.0)
-        
-        if response.is_success:
-            contexto = response.json()
-            print(f"   ✅ Contexto recuperado para sessão {sessao_id}: {contexto.get('tipo_contexto', 'N/A')}")
-            return contexto
-        else:
-            print(f"   ℹ️ Nenhum contexto encontrado para sessão {sessao_id}")
+        url = f"{API_NEGOCIO_URL}/admin/contextos/{sessao_id}/recentes"
+        resp = httpx.get(url, timeout=10.0)
+
+        if resp.status_code == 404:
+            print(f"   ℹ️ Nenhum contexto encontrado para sessão {sessao_id} (404)")
             return {"contexto_estruturado": {}}
-            
+
+        if not resp.is_success:
+            print(f"   ℹ️ Falha ao buscar contexto (HTTP {resp.status_code})")
+            return {"contexto_estruturado": {}}
+
+        try:
+            bruto = resp.json()
+        except Exception as e:
+            print(f"   ⚠️ Resposta não é JSON válido: {e}")
+            return {"contexto_estruturado": {}}
+
+        # A API pode devolver uma lista (vários contextos recentes) ou um único objeto
+        if isinstance(bruto, list):
+            if not bruto:
+                print(f"   ℹ️ Lista de contextos vazia para sessão {sessao_id}")
+                return {"contexto_estruturado": {}}
+            try:
+                # ISO8601 ordena lexicalmente; pega o mais recente
+                contexto = max(bruto, key=lambda x: x.get("criado_em", ""))
+            except Exception:
+                contexto = bruto[0]
+        elif isinstance(bruto, dict):
+            contexto = bruto
+        else:
+            print("   ⚠️ Formato inesperado da resposta (nem list nem dict)")
+            return {"contexto_estruturado": {}}
+
+        if not isinstance(contexto, dict):
+            return {"contexto_estruturado": {}}
+
+        print(f"   ✅ Contexto recuperado para sessão {sessao_id}: {contexto.get('tipo_contexto', 'N/A')}")
+        return contexto
+
     except Exception as e:
         print(f"   ❌ Erro ao buscar contexto: {e}")
         return {"contexto_estruturado": {}}
