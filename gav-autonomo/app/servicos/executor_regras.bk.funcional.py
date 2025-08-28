@@ -10,7 +10,6 @@ import json
 import httpx
 import time
 import re
-from app.servicos.hash_query_manager import salvar_contexto_com_hash
 from app.config.settings import config
 
 API_NEGOCIO_URL = config.API_NEGOCIO_URL.rstrip("/")
@@ -339,12 +338,12 @@ def _apresentar_resultado_original(json_resultado: dict, mensagem_original: str,
         if sessao_id and sessao_id != "anon":
             contexto_estruturado = resposta_conversacional.get("contexto_estruturado", {})
             if contexto_estruturado and contexto_estruturado.get("produtos"):
-                salvar_contexto_com_hash(
+                _salvar_contexto_no_banco(
                     sessao_id, 
                     contexto_estruturado, 
                     mensagem_original, 
                     resposta_conversacional.get("mensagem", ""),
-                    tipo="busca_numerada_rica"
+                    tipo="busca_numerada_rica"  # Tipo específico para busca
                 )
         
         return {

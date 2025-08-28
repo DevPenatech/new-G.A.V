@@ -3,6 +3,8 @@
 from fastapi import FastAPI, Depends, HTTPException, Body
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
+import hashlib
+import re
 
 from . import database, esquemas
 from . import crud  # agora existe (vide arquivo novo)
@@ -188,22 +190,112 @@ def endpoint_salvar_contexto(sessao_id: str, contexto: esquemas.ContextoEntrada,
     )
     return {"contexto_id": contexto_id, "status": "contexto salvo"}
 
-@app.get("/contexto/{sessao_id}", tags=["Contexto"])
-def endpoint_buscar_contexto(sessao_id: str, db: Session = Depends(get_db)):
-    """Busca o contexto mais recente de uma sessão."""
-    contexto = crud.buscar_contexto_sessao(db, sessao_id=sessao_id)
+@app.post("/contexto/{sessao_id}", tags=["Contexto"], status_code=201)
+def endpoint_salvar_contexto(sessao_id: str, contexto: esquemas.ContextoEntrada, db: Session = Depends(get_db)):
+    """Salva contexto estruturado para uma sessão COM HASH QUERY"""
+    
+    # Gera hash da mensagem original se não fornecido
+    hash_query = contexto.hash_query if hasattr(contexto, 'hash_query') else None
+    if not hash_query and contexto.mensagem_original:
+        hash_query = gerar_hash_query(contexto.mensagem_original)
+    
+    contexto_id = crud.salvar_contexto_sessao_com_hash(
+        db, 
+        sessao_id=sessao_id, 
+        tipo_contexto=contexto.tipo_contexto,
+        contexto_estruturado=contexto.contexto_estruturado,
+        mensagem_original=contexto.mensagem_original,
+        resposta_apresentada=contexto.resposta_apresentada,
+        hash_query=hash_query
+    )
+    
+    return {"contexto_id": contexto_id, "hash_query": hash_query, "status": "contexto salvo"}
+
+@app.post("/admin/contextos/deduplicar", tags=["Admin"], status_code=200)
+def endpoint_deduplicar_contextos(
+    dados: dict = Body(...), 
+    db: Session = Depends(get_db)
+):
+    """Deduplica contextos por hash, mantendo apenas o mais recente"""
+    
+    sessao_id = dados.get("sessao_id")
+    hash_query = dados.get("hash_query") 
+    tipo_contexto = dados.get("tipo_contexto")
+    
+    if not all([sessao_id, hash_query, tipo_contexto]):
+        raise HTTPException(status_code=400, detail="Parâmetros obrigatórios: sessao_id, hash_query, tipo_contexto")
+    
+    contextos_removidos = crud.deduplicar_contextos_por_hash(
+        db, sessao_id, hash_query, tipo_contexto
+    )
+    
+    return {"contextos_removidos": contextos_removidos}
+
+@app.post("/admin/contextos/limpar", tags=["Admin"], status_code=200)
+def endpoint_limpar_contextos_antigos(
+    dados: dict = Body(...),
+    db: Session = Depends(get_db)
+):
+    """Remove contextos antigos, mantendo apenas os N mais recentes"""
+    
+    sessao_id = dados.get("sessao_id")
+    tipo_contexto = dados.get("tipo_contexto")
+    limite = dados.get("limite", 5)
+    
+    if not all([sessao_id, tipo_contexto]):
+        raise HTTPException(status_code=400, detail="Parâmetros obrigatórios: sessao_id, tipo_contexto")
+    
+    contextos_removidos = crud.limpar_contextos_sessao(
+        db, sessao_id, tipo_contexto, limite
+    )
+    
+    return {"contextos_removidos": contextos_removidos}
+
+@app.get("/admin/contextos/{sessao_id}/recentes", tags=["Admin"])
+def endpoint_listar_contextos_recentes(
+    sessao_id: str,
+    limite: int = 5,
+    tipo: str = "busca_numerada_rica",
+    db: Session = Depends(get_db)
+):
+    """Lista contextos mais recentes de uma sessão"""
+    
+    contextos = crud.listar_contextos_recentes(db, sessao_id, tipo, limite)
+    
+    return contextos
+
+@app.get("/admin/contextos/{sessao_id}/hash/{hash_query}", tags=["Admin"])  
+def endpoint_buscar_por_hash(
+    sessao_id: str,
+    hash_query: str,
+    db: Session = Depends(get_db)
+):
+    """Busca contexto específico por hash"""
+    
+    contexto = crud.buscar_contexto_por_hash(db, sessao_id, hash_query)
+    
     if not contexto:
-        raise HTTPException(status_code=404, detail="Contexto não encontrado para esta sessão")
-    # Normaliza o tipo de 'contexto_estruturado' para evitar TypeError quando já vier dict
-    ce = contexto.get("contexto_estruturado")
-    if isinstance(ce, (bytes, bytearray)):
-        ce = ce.decode("utf-8", errors="ignore")
-    if isinstance(ce, str):
-        try:
-            contexto["contexto_estruturado"] = json.loads(ce)
-        except Exception:
-            contexto["contexto_estruturado"] = {}
-    elif ce is None:
-        contexto["contexto_estruturado"] = {}
-    # se já for dict/list, mantém como está
+        raise HTTPException(status_code=404, detail="Contexto não encontrado")
+    
     return contexto
+
+# Função auxiliar para gerar hash
+def gerar_hash_query(query: str) -> str:
+    """Gera hash MD5 normalizado de uma query"""
+    if not query:
+        return ""
+    
+    # Normaliza texto
+    query_normalizada = query.lower().strip()
+    
+    # Padroniza verbos de busca
+    query_normalizada = re.sub(r'\b(buscar|quero|procurar|encontrar|tem)\b', 'buscar', query_normalizada)
+    
+    # Remove artigos e preposições
+    query_normalizada = re.sub(r'\b(o|a|os|as|um|uma|de|da|do|para|por)\b', '', query_normalizada)
+    
+    # Remove espaços extras
+    query_normalizada = re.sub(r'\s+', ' ', query_normalizada).strip()
+    
+    # Gera hash MD5
+    return hashlib.md5(query_normalizada.encode('utf-8')).hexdigest()

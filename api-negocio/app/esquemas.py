@@ -126,10 +126,42 @@ class PromptExemplo(PromptExemploCreate):
     class Config:
         from_attributes = True
 
+# api-negocio/app/esquemas.py - ADIÇÕES para hash_query
+
+# Adicionar ao arquivo esquemas.py existente:
+
 class ContextoEntrada(BaseModel):
     tipo_contexto: str
     contexto_estruturado: Dict[str, Any]
     mensagem_original: Optional[str] = None
     resposta_apresentada: Optional[str] = None
+    hash_query: Optional[str] = None  # NOVO CAMPO
+
+class ContextoSaida(BaseModel):
+    id: int
+    sessao_id: str
+    tipo_contexto: str
+    contexto_estruturado: Dict[str, Any]
+    mensagem_original: Optional[str] = None
+    resposta_apresentada: Optional[str] = None
+    hash_query: Optional[str] = None  # NOVO CAMPO
+    criado_em: datetime
+    ativo: bool
     
-    
+    class Config:
+        from_attributes = True
+
+class EstatisticasContexto(BaseModel):
+    sessao_id: str
+    total_geral: int
+    tipos: List[Dict[str, Any]]
+
+class DeduplicacaoRequest(BaseModel):
+    sessao_id: str
+    hash_query: str
+    tipo_contexto: str
+
+class LimpezaRequest(BaseModel):
+    sessao_id: str
+    tipo_contexto: str
+    limite: int = 5

@@ -34,11 +34,12 @@ services:
     env_file: .env
     ports:
       - "8001:8001"
+      - "5679:5678"
     volumes:
       - ./api-negocio:/app
     restart: unless-stopped
     # ADICIONE A LINHA ABAIXO:
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+    command: python -m debugpy --listen 0.0.0.0:5678 -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 
 
   # --- SERVIÇO DO ORQUESTRADOR DE IA ---

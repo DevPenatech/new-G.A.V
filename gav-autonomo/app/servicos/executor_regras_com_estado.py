@@ -1,6 +1,5 @@
-# gav-autonomo/app/servicos/executor_regras.py
-# VERSÃO CORRIGIDA: Fluxo de quantidade com verificação de estado explícita
-# ⚠️ SUBSTITUI o arquivo executor_regras.py original
+# gav-autonomo/app/servicos/executor_regras_com_estado.py
+# CORREÇÃO: Fluxo de quantidade com verificação de estado explícita
 
 from app.adaptadores.cliente_negocio import obter_prompt_por_nome, listar_exemplos_prompt
 from app.adaptadores.interface_llm import completar_para_json
@@ -10,7 +9,6 @@ import json
 import httpx
 import time
 import re
-from app.servicos.hash_query_manager import salvar_contexto_com_hash
 from app.config.settings import config
 
 API_NEGOCIO_URL = config.API_NEGOCIO_URL.rstrip("/")
@@ -124,7 +122,7 @@ def _processar_resposta_quantidade(mensagem: dict, contexto_estruturado: dict) -
         if not produto_selecionado:
             return {"erro": "Produto selecionado não encontrado no contexto"}
         
-        item_id = produto_selecionado.get("id")  # Usando "id"
+        item_id = produto_selecionado.get("item_id")
         produto_info = produto_selecionado.get("produto_info", {})
         
         print(f"   🛒 Adicionando {quantidade}x item ID {item_id}")
@@ -134,7 +132,7 @@ def _processar_resposta_quantidade(mensagem: dict, contexto_estruturado: dict) -
             "endpoint": "/carrinhos/{sessao_id}/itens",
             "method": "POST",
             "body": {
-                "item_id": item_id,  # API ainda espera "item_id"
+                "item_id": item_id,
                 "quantidade": quantidade,
                 "codfilial": 2
             }
@@ -192,7 +190,7 @@ def _processar_selecao_produto_estado(mensagem: dict, contexto_estruturado: dict
         # Buscar produto selecionado no contexto
         produto_encontrado = None
         for produto in produtos_contexto:
-            if produto.get("id") == item_id_selecionado:
+            if produto.get("item_id") == item_id_selecionado:
                 produto_encontrado = produto
                 break
         
@@ -201,7 +199,7 @@ def _processar_selecao_produto_estado(mensagem: dict, contexto_estruturado: dict
         
         # ALTERAR ESTADO: Agora aguarda quantidade
         produto_selecionado = {
-            "id": item_id_selecionado,  # Usando "id" para consistência
+            "item_id": item_id_selecionado,
             "produto_info": produto_encontrado,
             "aguardando": "quantidade"
         }
@@ -339,12 +337,12 @@ def _apresentar_resultado_original(json_resultado: dict, mensagem_original: str,
         if sessao_id and sessao_id != "anon":
             contexto_estruturado = resposta_conversacional.get("contexto_estruturado", {})
             if contexto_estruturado and contexto_estruturado.get("produtos"):
-                salvar_contexto_com_hash(
+                _salvar_contexto_no_banco(
                     sessao_id, 
                     contexto_estruturado, 
                     mensagem_original, 
                     resposta_conversacional.get("mensagem", ""),
-                    tipo="busca_numerada_rica"
+                    tipo="busca_numerada_rica"  # Tipo específico para busca
                 )
         
         return {
