@@ -1,0 +1,20 @@
+# Modelfile-optimized
+FROM llama3.1:7b
+
+# Parâmetros otimizados para velocidade
+PARAMETER temperature 0.1
+PARAMETER top_p 0.9
+PARAMETER top_k 40
+PARAMETER num_predict 500
+PARAMETER repeat_penalty 1.1
+PARAMETER stop "\n\n"
+PARAMETER stop "```"
+
+# Template otimizado
+TEMPLATE """{{ .System }}
+
+{{ range .Messages }}{{ .Role }}: {{ .Content }}
+{{ end }}Assistant:"""
+
+# System prompt compacto
+SYSTEM "Você é um assistente que responde exclusivamente em JSON válido. Seja conciso e direto."

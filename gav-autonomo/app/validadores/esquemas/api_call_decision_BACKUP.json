@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Decisão API Call Genérica",
+  "type": "object",
+  "required": ["tool_name", "parameters"],
+  "additionalProperties": false,
+  "properties": {
+    "tool_name": {
+      "type": "string",
+      "enum": ["api_call"]
+    },
+    "parameters": {
+      "type": "object",
+      "required": ["endpoint", "method"],
+      "additionalProperties": true,
+      "properties": {
+        "endpoint": {"type": "string"},
+        "method": {"type": "string", "enum": ["GET", "POST", "PUT", "DELETE"]},
+        "body": {"type": "object"},
+        "sessao_id": {"type": "string"}
+      }
+    }
+  }
+}

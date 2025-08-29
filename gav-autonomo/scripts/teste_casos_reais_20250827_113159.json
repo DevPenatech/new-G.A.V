@@ -1,0 +1,511 @@
+{
+  "timestamp": "2025-08-27T11:31:59.926288",
+  "total_testes": 6,
+  "resultados": [
+    {
+      "caso": "Busca Normal",
+      "status": "sucesso",
+      "tempo": 11.803746461868286,
+      "analise": {
+        "status": "ok",
+        "mensagem": "Encontrei Coca-Cola! 🍻\\n\\nREFRIG.COCA-COLA PET 1X3L\\n2844 R$ 14,98 - Com 1 Unidade\\n4307 R$ 89,88 - Com 6 Unidades\\n\\n💡 Digite o ID do produto!",
+        "tem_dados": true,
+        "debug_timing": "11.79s",
+        "problemas": []
+      },
+      "resposta_completa": {
+        "mensagem": "Encontrei Coca-Cola! 🍻\\n\\nREFRIG.COCA-COLA PET 1X3L\\n2844 R$ 14,98 - Com 1 Unidade\\n4307 R$ 89,88 - Com 6 Unidades\\n\\n💡 Digite o ID do produto!",
+        "tipo": "apresentacao_busca",
+        "dados_originais": {
+          "resultados": [
+            {
+              "id": 1981,
+              "codprod": 31757,
+              "descricao": "REFRIG.COCA-COLA PET 1X3L",
+              "descricaoweb": null,
+              "marca": "COCA-COLA",
+              "itens": [
+                {
+                  "id": 2844,
+                  "unidade": "UN",
+                  "qtunit": 1,
+                  "pvenda": 14.98,
+                  "poferta": 14.98
+                },
+                {
+                  "id": 4307,
+                  "unidade": "PC",
+                  "qtunit": 6,
+                  "pvenda": 89.88,
+                  "poferta": 89.88
+                }
+              ]
+            }
+          ],
+          "status_busca": "sucesso"
+        },
+        "contexto_estruturado": {
+          "produtos": [
+            {
+              "item_id": 2844,
+              "descricao": "REFRIG.COCA-COLA PET 1X3L",
+              "preco": 14.98,
+              "qtunit": 1,
+              "unidade": "UN",
+              "preco_lista": 14.98,
+              "preco_oferta": 14.98
+            },
+            {
+              "item_id": 4307,
+              "descricao": "REFRIG.COCA-COLA PET 1X3L",
+              "preco": 89.88,
+              "qtunit": 6,
+              "unidade": "PC",
+              "preco_lista": 89.88,
+              "preco_oferta": 89.88
+            }
+          ]
+        },
+        "modelo_apresentacao": "llm_original",
+        "_debug_timing": {
+          "tempo_total_segundos": "11.79s",
+          "timestamp_fim": "11:31:14"
+        }
+      }
+    },
+    {
+      "caso": "Busca Mais Barato",
+      "status": "sucesso",
+      "tempo": 9.543361902236938,
+      "analise": {
+        "status": "problema_apresentacao",
+        "mensagem": "Encontrei Coca-Cola! 🍻\\n\\nREFRIG.COCA-COLA PET 1X3L\\n2844 R$ 14,98 - Com 1 Unidade\\n4307 R$ 89,88 - Com 6 Unidades\\n\\n💡 Digite o ID do produto!",
+        "tem_dados": true,
+        "debug_timing": "9.54s",
+        "problemas": [
+          "Mensagem não menciona que é mais barato"
+        ]
+      },
+      "resposta_completa": {
+        "mensagem": "Encontrei Coca-Cola! 🍻\\n\\nREFRIG.COCA-COLA PET 1X3L\\n2844 R$ 14,98 - Com 1 Unidade\\n4307 R$ 89,88 - Com 6 Unidades\\n\\n💡 Digite o ID do produto!",
+        "tipo": "apresentacao_busca",
+        "dados_originais": {
+          "resultados": [
+            {
+              "id": 1981,
+              "codprod": 31757,
+              "descricao": "REFRIG.COCA-COLA PET 1X3L",
+              "descricaoweb": null,
+              "marca": "COCA-COLA",
+              "itens": [
+                {
+                  "id": 2844,
+                  "unidade": "UN",
+                  "qtunit": 1,
+                  "pvenda": 14.98,
+                  "poferta": 14.98
+                },
+                {
+                  "id": 4307,
+                  "unidade": "PC",
+                  "qtunit": 6,
+                  "pvenda": 89.88,
+                  "poferta": 89.88
+                }
+              ]
+            }
+          ],
+          "status_busca": "sucesso"
+        },
+        "contexto_estruturado": {
+          "produtos": [
+            {
+              "item_id": 2844,
+              "descricao": "REFRIG.COCA-COLA PET 1X3L",
+              "preco": 14.98,
+              "qtunit": 1,
+              "unidade": "UN",
+              "preco_lista": 14.98,
+              "preco_oferta": 14.98
+            },
+            {
+              "item_id": 4307,
+              "descricao": "REFRIG.COCA-COLA PET 1X3L",
+              "preco": 89.88,
+              "qtunit": 6,
+              "unidade": "PC",
+              "preco_lista": 89.88,
+              "preco_oferta": 89.88
+            }
+          ]
+        },
+        "modelo_apresentacao": "llm_original",
+        "_debug_timing": {
+          "tempo_total_segundos": "9.54s",
+          "timestamp_fim": "11:31:25"
+        }
+      }
+    },
+    {
+      "caso": "Busca Oferta",
+      "status": "sucesso",
+      "tempo": 14.91891860961914,
+      "analise": {
+        "status": "problema_apresentacao",
+        "mensagem": "Encontrei vários produtos NESCAU! 🍫\\n\\nACHOCOLATADO PÓ NESCAU LATA 200G\\nID: 18135 R$ 6,79 - Com 1 Unidade\\nBEBIDA LÁCTEA UHT CHOCOLATE NESCAU CAIXA 1L TAMANHO FAMÍLIA\\nID: 2981 R$ 153.48 - Com 12 Unidades\\nACHOCOLATADO EM PÓ NESCAU CANELA LT 180G\\nID: 13127 R$ 1,00 - Com 1 Unidade\\nACHOCOLATADO PÓ NESCAU LATA 370G\\nID: 18137 R$ 9,98 - Com 36 Unidades\\n\\n💡 Digite o ID do produto desejado!",
+        "tem_dados": true,
+        "debug_timing": "14.91s",
+        "problemas": [
+          "Mensagem não menciona ofertas"
+        ]
+      },
+      "resposta_completa": {
+        "mensagem": "Encontrei vários produtos NESCAU! 🍫\\n\\nACHOCOLATADO PÓ NESCAU LATA 200G\\nID: 18135 R$ 6,79 - Com 1 Unidade\\nBEBIDA LÁCTEA UHT CHOCOLATE NESCAU CAIXA 1L TAMANHO FAMÍLIA\\nID: 2981 R$ 153.48 - Com 12 Unidades\\nACHOCOLATADO EM PÓ NESCAU CANELA LT 180G\\nID: 13127 R$ 1,00 - Com 1 Unidade\\nACHOCOLATADO PÓ NESCAU LATA 370G\\nID: 18137 R$ 9,98 - Com 36 Unidades\\n\\n💡 Digite o ID do produto desejado!",
+        "tipo": "apresentacao_busca",
+        "dados_originais": {
+          "resultados": [
+            {
+              "id": 9089,
+              "codprod": 63930,
+              "descricao": "ACHOC.PO NESCAU LT. 1X200G",
+              "descricaoweb": "ACHOCOLATADO PÓ NESCAU LATA 200G",
+              "marca": "NESCAU",
+              "itens": [
+                {
+                  "id": 18135,
+                  "unidade": "LT",
+                  "qtunit": 1,
+                  "pvenda": 6.79,
+                  "poferta": 6.79
+                },
+                {
+                  "id": 18136,
+                  "unidade": "CX",
+                  "qtunit": 24,
+                  "pvenda": 162.96,
+                  "poferta": 158.07
+                }
+              ]
+            },
+            {
+              "id": 2064,
+              "codprod": 33459,
+              "descricao": "ACHOC.BEB.LAC.NESCAU 12X1L",
+              "descricaoweb": "BEBIDA LÁCTEA UHT CHOCOLATE NESCAU CAIXA 1L TAMANHO FAMÍLIA",
+              "marca": "NESCAU",
+              "itens": [
+                {
+                  "id": 2981,
+                  "unidade": "CX",
+                  "qtunit": 12,
+                  "pvenda": 153.48,
+                  "poferta": 153.48
+                },
+                {
+                  "id": 3019,
+                  "unidade": "UN",
+                  "qtunit": 1,
+                  "pvenda": 12.79,
+                  "poferta": 12.79
+                }
+              ]
+            },
+            {
+              "id": 6618,
+              "codprod": 58299,
+              "descricao": "ACHOC.PO NESCAU CANELA 1X180G",
+              "descricaoweb": "ACHOCOLATADO EM PÓ NESCAU CANELA LT 180G",
+              "marca": "NESCAU",
+              "itens": [
+                {
+                  "id": 13127,
+                  "unidade": "LT",
+                  "qtunit": 1,
+                  "pvenda": 1.0,
+                  "poferta": null
+                },
+                {
+                  "id": 24039,
+                  "unidade": "CX",
+                  "qtunit": 48,
+                  "pvenda": 1.0,
+                  "poferta": null
+                }
+              ]
+            },
+            {
+              "id": 7028,
+              "codprod": 57944,
+              "descricao": "ACHOC.PO NESCAU SACHET LV+PG-* 6X1,2KG",
+              "descricaoweb": "ACHOCOLATADO PÓ NESCAU PACOTE 1,2KG LEVE MAIS PAGUE MENOS",
+              "marca": "NESCAU",
+              "itens": [
+                {
+                  "id": 13948,
+                  "unidade": "CX",
+                  "qtunit": 6,
+                  "pvenda": 161.88,
+                  "poferta": 161.88
+                },
+                {
+                  "id": 13966,
+                  "unidade": "PC",
+                  "qtunit": 1,
+                  "pvenda": 26.98,
+                  "poferta": 26.98
+                }
+              ]
+            },
+            {
+              "id": 4224,
+              "codprod": 48468,
+              "descricao": "ACHOC.PO NESCAU SACHET 1X1,200KG",
+              "descricaoweb": "ACHOCOLATADO EM PO NESCAU 1,200KG",
+              "marca": "NESCAU",
+              "itens": [
+                {
+                  "id": 7432,
+                  "unidade": "PC",
+                  "qtunit": 1,
+                  "pvenda": 27.98,
+                  "poferta": 27.98
+                },
+                {
+                  "id": 23957,
+                  "unidade": "CX",
+                  "qtunit": 6,
+                  "pvenda": 167.88,
+                  "poferta": 167.88
+                }
+              ]
+            },
+            {
+              "id": 4728,
+              "codprod": 49539,
+              "descricao": "ACHOC.PO NESCAU PROFISSIONAL PC. 4X2KG",
+              "descricaoweb": "ACHOCOLATADO EM PÓ NESCAU PROFISSIONAL 2KG",
+              "marca": "NESCAU",
+              "itens": [
+                {
+                  "id": 8400,
+                  "unidade": "CX",
+                  "qtunit": 4,
+                  "pvenda": 155.96,
+                  "poferta": 151.28
+                },
+                {
+                  "id": 8508,
+                  "unidade": "PC",
+                  "qtunit": 1,
+                  "pvenda": 38.99,
+                  "poferta": 38.99
+                }
+              ]
+            },
+            {
+              "id": 6487,
+              "codprod": 55642,
+              "descricao": "ACHOC.PO NESCAU GTS120G SACHET 1X1,200KG",
+              "descricaoweb": "ACHOCOLATADO EM PÓ NESCAU LEVE 1,2KG PAGUE 1,08KG",
+              "marca": "NESCAU",
+              "itens": [
+                {
+                  "id": 12773,
+                  "unidade": "PC",
+                  "qtunit": 1,
+                  "pvenda": 12.58,
+                  "poferta": 12.58
+                },
+                {
+                  "id": 12793,
+                  "unidade": "CX",
+                  "qtunit": 6,
+                  "pvenda": 75.48,
+                  "poferta": 75.48
+                }
+              ]
+            },
+            {
+              "id": 5686,
+              "codprod": 57271,
+              "descricao": "ACHOC.PO NESCAU LV.30.PG.27 30X370G",
+              "descricaoweb": "ACHOCOLATADO EM PÓ NESCAU 370G LEVE 30 PAGUE 27 UN",
+              "marca": "NESCAU",
+              "itens": [
+                {
+                  "id": 10392,
+                  "unidade": "CX",
+                  "qtunit": 1,
+                  "pvenda": 1.0,
+                  "poferta": null
+                }
+              ]
+            },
+            {
+              "id": 7004,
+              "codprod": 58300,
+              "descricao": "ACHOC.PO NESCAU BRANCO 1X180G",
+              "descricaoweb": "ACHOCOLATADO EM PÓ NESCAU BRANCO LT 180G",
+              "marca": "NESCAU",
+              "itens": [
+                {
+                  "id": 13877,
+                  "unidade": "LT",
+                  "qtunit": 1,
+                  "pvenda": 1.0,
+                  "poferta": null
+                },
+                {
+                  "id": 13897,
+                  "unidade": "CX",
+                  "qtunit": 48,
+                  "pvenda": 1.0,
+                  "poferta": null
+                }
+              ]
+            },
+            {
+              "id": 9090,
+              "codprod": 63931,
+              "descricao": "ACHOC.PO NESCAU LT.* 1X370G",
+              "descricaoweb": "ACHOCOLATADO PÓ NESCAU LATA 370G",
+              "marca": "NESCAU",
+              "itens": [
+                {
+                  "id": 18137,
+                  "unidade": "LT",
+                  "qtunit": 1,
+                  "pvenda": 9.98,
+                  "poferta": 9.98
+                },
+                {
+                  "id": 18138,
+                  "unidade": "CX",
+                  "qtunit": 36,
+                  "pvenda": 359.28,
+                  "poferta": 348.5
+                }
+              ]
+            }
+          ],
+          "status_busca": "sucesso"
+        },
+        "contexto_estruturado": {
+          "produtos": [
+            {
+              "id": 18135,
+              "descricao": "ACHOC.PO NESCAU LT. 1X200G",
+              "preco": 6.79
+            },
+            {
+              "id": 2981,
+              "descricao": "BEBIDA LÁCTEA UHT CHOCOLATE NESCAU CAIXA 1L TAMANHO FAMÍLIA",
+              "preco": 153.48
+            },
+            {
+              "id": 13127,
+              "descricao": "ACHOC.PO NESCAU CANELA 1X180G",
+              "preco": null
+            },
+            {
+              "id": 18137,
+              "descricao": "ACHOC.PO NESCAU LT.* 1X370G",
+              "preco": 9.98
+            }
+          ]
+        },
+        "modelo_apresentacao": "llm_original",
+        "_debug_timing": {
+          "tempo_total_segundos": "14.91s",
+          "timestamp_fim": "11:31:40"
+        }
+      }
+    },
+    {
+      "caso": "Ver Carrinho Vazio",
+      "status": "sucesso",
+      "tempo": 4.750011444091797,
+      "analise": {
+        "status": "ok",
+        "mensagem": "Seu carrinho está vazio! 🛒💨\\n\\nVamos começar as compras? Posso ajudar você a encontrar:\\n• Produtos de limpeza\\n• Alimentos e bebidas\\n• Higiene e beleza\\n\\nO que você está procurando?",
+        "tem_dados": true,
+        "debug_timing": "4.74s",
+        "problemas": []
+      },
+      "resposta_completa": {
+        "mensagem": "Seu carrinho está vazio! 🛒💨\\n\\nVamos começar as compras? Posso ajudar você a encontrar:\\n• Produtos de limpeza\\n• Alimentos e bebidas\\n• Higiene e beleza\\n\\nO que você está procurando?",
+        "tipo": "apresentacao_carrinho",
+        "dados_originais": {
+          "id": 215,
+          "sessao_id": "teste_carrinho_vazio",
+          "status": "aberto",
+          "itens": [],
+          "valor_total": 0.0
+        },
+        "contexto_estruturado": {},
+        "modelo_apresentacao": "llm_original",
+        "_debug_timing": {
+          "tempo_total_segundos": "4.74s",
+          "timestamp_fim": "11:31:46"
+        }
+      }
+    },
+    {
+      "caso": "Adicionar Item",
+      "status": "sucesso",
+      "tempo": 5.4816858768463135,
+      "analise": {
+        "status": "ok",
+        "mensagem": "Item adicionado! 🛒✨\\n\\nSua compra foi registrada com sucesso!\\n\\nDetalhes do item adicionado: \\n• 1x Produto Desconhecido - Subtotal: R$ 0.00\\n\\nQuer ver seu carrinho ou continuar comprando?",
+        "tem_dados": true,
+        "debug_timing": "5.47s",
+        "problemas": []
+      },
+      "resposta_completa": {
+        "mensagem": "Item adicionado! 🛒✨\\n\\nSua compra foi registrada com sucesso!\\n\\nDetalhes do item adicionado: \\n• 1x Produto Desconhecido - Subtotal: R$ 0.00\\n\\nQuer ver seu carrinho ou continuar comprando?",
+        "tipo": "apresentacao_carrinho",
+        "dados_originais": {
+          "status": "item adicionado",
+          "carrinho_id": 216
+        },
+        "contexto_estruturado": {},
+        "modelo_apresentacao": "llm_original",
+        "_debug_timing": {
+          "tempo_total_segundos": "5.47s",
+          "timestamp_fim": "11:31:53"
+        }
+      }
+    },
+    {
+      "caso": "Ver Carrinho Com Item",
+      "status": "sucesso",
+      "tempo": 4.733530044555664,
+      "analise": {
+        "status": "problema_dados",
+        "mensagem": "Seu carrinho está vazio! 🛒💨\\n\\nVamos começar as compras? Posso ajudar você a encontrar:\\n• Produtos de limpeza\\n• Alimentos e bebidas\\n• Higiene e beleza\\n\\nO que você está procurando?",
+        "tem_dados": true,
+        "debug_timing": "4.73s",
+        "problemas": [
+          "Carrinho deveria ter itens"
+        ]
+      },
+      "resposta_completa": {
+        "mensagem": "Seu carrinho está vazio! 🛒💨\\n\\nVamos começar as compras? Posso ajudar você a encontrar:\\n• Produtos de limpeza\\n• Alimentos e bebidas\\n• Higiene e beleza\\n\\nO que você está procurando?",
+        "tipo": "apresentacao_carrinho",
+        "dados_originais": {
+          "id": 217,
+          "sessao_id": "teste_carrinho_cheio",
+          "status": "aberto",
+          "itens": [],
+          "valor_total": 0.0
+        },
+        "contexto_estruturado": {},
+        "modelo_apresentacao": "llm_original",
+        "_debug_timing": {
+          "tempo_total_segundos": "4.73s",
+          "timestamp_fim": "11:31:58"
+        }
+      }
+    }
+  ]
+}

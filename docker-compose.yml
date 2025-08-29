@@ -1,0 +1,99 @@
+# docker-compose.yml
+services:
+  # --- SERVIÇO DE BANCO DE DADOS ---
+  gav_db:
+    image: postgres:15-alpine
+    container_name: gav_db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      # Volume para persistir os dados do banco
+      - postgres_data:/var/lib/postgresql/data
+      # Monta o script de schema para ser executado na inicialização
+      - ./infra/banco_dados/schema.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      # Expõe a porta do Postgres para a máquina host (para debug)
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      # Verifica se o banco está pronto para aceitar conexões
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- SERVIÇO DA API DE NEGÓCIO ---
+  api_negocio:
+    container_name: api_negocio
+    build: ./api-negocio
+    depends_on:
+      gav_db:
+        condition: service_healthy
+    env_file: .env
+    ports:
+      - "8001:8001"
+      - "5679:5678"
+    volumes:
+      - ./api-negocio:/app
+    restart: unless-stopped
+    # ADICIONE A LINHA ABAIXO:
+    command: python -m debugpy --listen 0.0.0.0:5678 -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+
+
+  # --- SERVIÇO DO ORQUESTRADOR DE IA ---
+  gav_autonomo:
+    container_name: gav_autonomo
+    build: ./gav-autonomo
+    depends_on:
+      - api_negocio
+    env_file: .env
+    ports:
+      - "8000:8000"
+      - "5678:5678"
+    volumes:
+      - ./gav-autonomo:/app
+    restart: unless-stopped
+    # ADICIONE A LINHA ABAIXO:
+    command: python -m debugpy --listen 0.0.0.0:5678 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  chatweb:
+    container_name: bot_react_chatweb
+    restart: always
+    build:
+      context: ./chatweb  
+    ports:
+      - "3000:3000"
+    environment:
+      - CHOKIDAR_USEPOLLING=true        # força watcher via polling (Docker/WSL)
+      - WATCHPACK_POLLING=true          # webpack também em polling
+      - WDS_SOCKET_HOST=localhost       # socket do dev server resolve no host
+      - WDS_SOCKET_PORT=3000
+      - BROWSER=none                    # evita abrir navegador dentro do container
+    env_file: .env  
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./chatweb:/app                   # monta o projeto todo para hot-reload
+    depends_on:
+      - gav_autonomo
+
+  conector-vonage:
+    build: ./conector-vonage
+    env_file: .env  
+    container_name: conector-vonage
+    ports:
+      - "8088:8088"
+    depends_on:
+      - gav_autonomo
+    secrets:
+      - vonage_private_key
+
+secrets:
+  vonage_private_key:
+    file: ./conector-vonage/private.key
+
+volumes:
+  postgres_data:
+    driver: local

@@ -1,0 +1,25 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Attach: gav_autonomo (5678)",
+      "type": "python",
+      "request": "attach",
+      "connect": { "host": "localhost", "port": 5678 },
+      "pathMappings": [
+        { "localRoot": "${workspaceFolder}/gav-autonomo", "remoteRoot": "/app" }
+      ],
+      "justMyCode": true
+    },
+    {
+      "name": "Attach: api_negocio (5679)",
+      "type": "python",
+      "request": "attach",
+      "connect": { "host": "localhost", "port": 5679 },
+      "pathMappings": [
+        { "localRoot": "${workspaceFolder}/api-negocio", "remoteRoot": "/app" }
+      ],
+      "justMyCode": true
+    }
+  ]
+}

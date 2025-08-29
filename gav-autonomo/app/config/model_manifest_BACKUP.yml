@@ -1,0 +1,27 @@
+# gav-autonomo/app/config/model_manifest.yml
+# FASE 4: Manifesto para ferramenta genérica "api_call"
+# Elimina acoplamento a nomes específicos de ferramentas
+
+versao: 2
+defaults:
+  modelo: "llama-3.1-70b"
+  temperatura: 0.1
+  max_tokens: 1000
+
+regras:
+  - id: roteamento_generico
+    action: decisao_llm
+    prompt: prompt_api_call_selector  # <- NOVO PROMPT
+    versao_prompt: 3
+    espaco_prompt: autonomo
+    schema: api_call_decision.json    # <- NOVO SCHEMA
+
+# Configurações de retry e reparo
+retry:
+  max_tentativas: 2
+  backoff_segundos: 1
+  
+reparo_automatico:
+  ativo: true
+  prompt_reparo: prompt_api_repair
+  codigos_erro_reparaveis: [400, 422]

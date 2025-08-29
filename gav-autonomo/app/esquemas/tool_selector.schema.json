@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "tool_name": { "type": "string" },
+    "parameters": { "type": "object" }
+  },
+  "required": ["tool_name", "parameters"],
+  "additionalProperties": false
+}
